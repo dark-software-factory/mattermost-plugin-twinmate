@@ -4,7 +4,57 @@ import (
 	"testing"
 
 	"github.com/mattermost/mattermost/server/public/model"
+	"github.com/mattermost/mattermost/server/public/plugin"
 )
+
+type provenanceWriteFailureAPI struct {
+	plugin.API
+	created int
+	logged bool
+}
+func (f *provenanceWriteFailureAPI) CreatePost(post *model.Post)(*model.Post,*model.AppError) {
+	f.created++
+	post.Id="created-once"
+	return post,nil
+}
+func (f *provenanceWriteFailureAPI) KVSet(string,[]byte)*model.AppError {
+	return &model.AppError{Message:"temporary storage failure"}
+}
+func (f *provenanceWriteFailureAPI) LogError(string,...any) {f.logged=true}
+
+func TestPublishedPostIsNotReportedAsFailedWhenOnlyBadgeProvenanceFails(t *testing.T) {
+	api:=&provenanceWriteFailureAPI{}
+	p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:api}}
+	id,err:=p.createTwinPost("misha","channel","","work done","")
+	if err!=nil || id!="created-once" || api.created!=1 || !api.logged {
+		t.Fatalf("published post could be duplicated on retry: %q %v, created=%d logged=%t",id,err,api.created,api.logged)
+	}
+}
+
+type openChannelProvenanceAPI struct {plugin.API; readable bool}
+func (f *openChannelProvenanceAPI) KVGet(string)([]byte,*model.AppError) {
+	return []byte(`{"owner_id":"misha","channel_id":"open-channel"}`),nil
+}
+func (f *openChannelProvenanceAPI) GetChannel(string)(*model.Channel,*model.AppError) {
+	return &model.Channel{Id:"open-channel",Type:model.ChannelTypeOpen},nil
+}
+func (f *openChannelProvenanceAPI) HasPermissionToChannel(string,string,*model.Permission)bool {return f.readable}
+func (f *openChannelProvenanceAPI) GetChannelMember(string,string)(*model.ChannelMember,*model.AppError) {
+	panic("public-channel provenance must not require membership")
+}
+func (f *openChannelProvenanceAPI) GetPost(string)(*model.Post,*model.AppError) {
+	return &model.Post{Id:"created-once",UserId:"misha",ChannelId:"open-channel",Message:twinmateLabel+"done"},nil
+}
+
+func TestVerifiedBadgeUsesReadPermissionForOpenChannels(t *testing.T) {
+	f:=&openChannelProvenanceAPI{readable:true}
+	p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:f}}
+	verified,err:=p.verifiedPostForViewer("created-once","viewer")
+	if err!=nil || !verified {t.Fatalf("readable open-channel badge hidden: %t %v",verified,err)}
+	f.readable=false
+	verified,err=p.verifiedPostForViewer("created-once","viewer")
+	if err!=nil || verified {t.Fatalf("unreadable open-channel badge disclosed: %t %v",verified,err)}
+}
 
 func TestOnlyHumanPostsAreForwarded(t *testing.T) {
 	human := &model.User{IsBot: false}

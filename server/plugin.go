@@ -218,7 +218,11 @@ func (p *Plugin) createTwinPost(ownerID, channelID, rootID, text, sourceID strin
 		return "",err
 	}
 	if appErr := p.API.KVSet(postProvenanceKey(created.Id), origin); appErr != nil {
-		return "",fmt.Errorf("recording Twinmate post provenance: %w", appErr)
+		// CreatePost has already succeeded. Reporting a failed send invites MCP
+		// callers to retry and duplicate the message. The immutable body label
+		// still discloses AI authorship even when the web badge is unavailable.
+		p.API.LogError("Twinmate post published without verified badge provenance", "post_id", created.Id, "error", appErr.Error())
+		return created.Id,nil
 	}
 	return created.Id,nil
 }
@@ -241,7 +245,14 @@ func (p *Plugin) verifiedPostForViewer(postID, viewerID string) (bool, error) {
 	if origin.OwnerID == "" || origin.ChannelID == "" {
 		return false, nil
 	}
-	if _, appErr := p.API.GetChannelMember(origin.ChannelID, viewerID); appErr != nil {
+	channel,appErr:=p.API.GetChannel(origin.ChannelID)
+	if appErr!=nil || channel==nil || !p.API.HasPermissionToChannel(viewerID,origin.ChannelID,model.PermissionReadChannel) {
+		return false,nil
+	}
+	if channel.Type!=model.ChannelTypeOpen {
+		if _, appErr := p.API.GetChannelMember(origin.ChannelID, viewerID); appErr != nil {return false,nil}
+	}
+	if channel.DeleteAt!=0 {
 		return false, nil
 	}
 	post, appErr := p.API.GetPost(postID)

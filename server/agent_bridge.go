@@ -61,7 +61,9 @@ func (b MattermostBridge) List(owner,postID,direction,scope string,limit int) (M
 	var list *model.PostList
 	var appErr *model.AppError
 	if scope=="thread" {
-		list,appErr=b.API.GetPostThread(anchor.Id)
+		root:=anchor.RootId
+		if root=="" {root=anchor.Id}
+		list,appErr=b.API.GetPostThread(root)
 	} else if direction=="before" {
 		list,appErr=b.API.GetPostsBefore(anchor.ChannelId,anchor.Id,0,limit+1)
 	} else {

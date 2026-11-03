@@ -44,11 +44,11 @@ function TwinmateSettingsRoot({locale}) {
         if (!open) { return; }
         let alive = true;
         fetch(apiURL, {credentials: 'same-origin'}).then(async (response) => {
-            if (!response.ok) { throw new Error('Unable to load settings'); }
+            if (!response.ok) { throw new Error(tr('settings_load_failed')); }
             return response.json();
         }).then((data) => {
             if (alive) { setEndpoint(data.endpoint || ''); setSavedEndpoint(data.endpoint || ''); setToken(''); setRemoveToken(false); setEnabled(Boolean(data.enabled)); setHasToken(Boolean(data.has_token)); }
-        }).catch((error) => { if (alive) { setStatus(error.message); } });
+        }).catch(() => { if (alive) { setStatus(tr('settings_load_failed')); } });
         return () => { alive = false; };
     }, [open]);
 
@@ -56,7 +56,7 @@ function TwinmateSettingsRoot({locale}) {
         if (!open) { return; }
         let alive = true;
         readTokenStatus().then((data) => { if (alive) { setHasAgentToken(Boolean(data.has_token)); } })
-            .catch((error) => { if (alive) { setAgentTokenStatus(error.message); } });
+            .catch(() => { if (alive) { setAgentTokenStatus(tr('token_status_failed')); } });
         return () => { alive = false; };
     }, [open]);
 
@@ -68,7 +68,7 @@ function TwinmateSettingsRoot({locale}) {
             setIssuedAgentToken(generated);
             setHasAgentToken(true);
             setAgentTokenStatus(tr('token_created'));
-        } catch (error) { setAgentTokenStatus(error.message); }
+        } catch { setAgentTokenStatus(tr('token_action_failed')); }
     }
 
     async function removeAgentToken() {
@@ -78,21 +78,21 @@ function TwinmateSettingsRoot({locale}) {
             setIssuedAgentToken('');
             setHasAgentToken(false);
             setAgentTokenStatus(tr('token_revoked'));
-        } catch (error) { setAgentTokenStatus(error.message); }
+        } catch { setAgentTokenStatus(tr('token_action_failed')); }
     }
 
     async function save(event) {
         event.preventDefault();
-        setStatus('Saving…');
+        setStatus(tr('saving'));
         try {
             const response = await fetch(apiURL, {method: 'PUT', credentials: 'same-origin', headers: {'Content-Type': 'application/json', ...csrfHeaders()}, body: JSON.stringify({endpoint, token, enabled, remove_token: removeToken})});
-            if (!response.ok) { throw new Error('Unable to save settings. Check the HTTPS endpoint.'); }
+            if (!response.ok) { throw new Error(tr('settings_save_failed')); }
             setHasToken(!removeToken && (Boolean(token) || (hasToken && endpointOrigin(savedEndpoint) === endpointOrigin(endpoint))));
             setSavedEndpoint(endpoint);
             setRemoveToken(false);
             setToken('');
             setStatus(tr('saved'));
-        } catch (error) { setStatus(error.message); }
+        } catch { setStatus(tr('settings_save_failed')); }
     }
 
     if (!open) { return null; }
@@ -118,10 +118,10 @@ function TwinmateSettingsRoot({locale}) {
                 React.createElement('label', {style: styles.label, htmlFor: 'twinmate-endpoint'}, tr('agent_endpoint')),
                 React.createElement('input', {id: 'twinmate-endpoint', style: styles.field, type: 'url', placeholder: 'https://agent.example.com/events', value: endpoint, onChange: (e) => setEndpoint(e.target.value)}),
                 React.createElement('label', {style: styles.label, htmlFor: 'twinmate-token'}, tr('bearer_token')),
-                React.createElement('input', {id: 'twinmate-token', style: styles.field, type: 'password', autoComplete: 'new-password', disabled: removeToken, placeholder: hasToken ? 'Leave blank to keep it on this host' : 'Optional', value: token, onChange: (e) => setToken(e.target.value)}),
+                React.createElement('input', {id: 'twinmate-token', style: styles.field, type: 'password', autoComplete: 'new-password', disabled: removeToken, placeholder: tr(hasToken ? 'token_placeholder' : 'optional'), value: token, onChange: (e) => setToken(e.target.value)}),
                 hasToken && React.createElement('label', {style: {...styles.label, fontWeight: 400}},
                     React.createElement('input', {type: 'checkbox', checked: removeToken, onChange: (e) => { setRemoveToken(e.target.checked); setToken(''); }}), ` ${tr('remove_token')}`),
-                hasToken && savedEndpoint && endpointOrigin(savedEndpoint) !== endpointOrigin(endpoint) && React.createElement('p', {style: styles.secondary}, 'Changing the agent host clears the previously saved token. Enter a new token if the new endpoint needs one.'),
+                hasToken && savedEndpoint && endpointOrigin(savedEndpoint) !== endpointOrigin(endpoint) && React.createElement('p', {style: styles.secondary}, tr('host_changed')),
                 React.createElement('label', {style: {...styles.label, fontWeight: 400}},
                     React.createElement('input', {type: 'checkbox', checked: enabled, onChange: (e) => setEnabled(e.target.checked)}), ` ${tr('enable_connection')}`),
                 React.createElement('p', {style: styles.secondary}, tr('dm_help')),

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {t, viewerLocale} = require('./i18n');
+const {t, viewerLocale, messageCatalog} = require('./i18n');
 
 test('AI twin badge follows major Mattermost display locales', () => {
     assert.equal(t('badge', 'en'), 'AI twin');
@@ -20,6 +20,16 @@ test('AI twin badge follows major Mattermost display locales', () => {
 test('unknown locales and untranslated keys fall back to English', () => {
     assert.equal(t('badge', 'xx-YY'), 'AI twin');
     assert.equal(t('settings_title', 'xx-YY'), 'Twinmate settings');
+});
+
+test('all supported locales translate every user-facing settings string', () => {
+    const keys = Object.keys(messageCatalog.en);
+    for (const [locale, messages] of Object.entries(messageCatalog)) {
+        for (const key of keys) {
+            assert.equal(typeof messages[key], 'string', `${locale} is missing ${key}`);
+            assert.ok(messages[key].length > 0, `${locale} has empty ${key}`);
+        }
+    }
 });
 
 test('locale comes from the Mattermost user profile, not browser language', () => {

@@ -22,6 +22,7 @@ Let a developer's personal OpenClaw or any local/cloud coding agent read a Matte
 - Only authenticated Mattermost sessions can generate/revoke a token. Remote API requests use `X-Twinmate-Token` (not the Mattermost `Authorization` header) so that Mattermost does not confuse it with a PAT.
 - Tokens have 256-bit random secret material, are verified using constant-time hash comparison, and may be rotated or revoked. Only one active token per owner in the first release. A token cannot authorize cross-user operations.
 - Reading starts from a direct link/post ID, and pages contain at most 50 text messages each. No attachments/downloads, global search, bulk exports, or ephemeral/deleted posts. The plugin rejects deactivated owners and archived-channel writes.
+- Thread-scope queries currently use Mattermost's unpaginated `GetPostThread` plugin API internally; for very long threads the backend work is not bounded by the response page size. Resolve this prior to production-scale rollout.
 - Client-provided `channel_id` and `reply_to_post_id` must match. No write to channels outside the user's permissions. Incoming webhook, bot, or auto-reply paths retain their existing behavior.
 - MCP must never print credentials or agent API data to stdout outside valid MCP protocol framing; errors use stderr.
 - API errors are explicit JSON with appropriate 4xx/5xx responses. Sensitive responses are `Cache-Control: no-store`.
