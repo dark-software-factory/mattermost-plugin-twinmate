@@ -7,6 +7,7 @@ import (
 )
 
 type MattermostAgentAPI interface {
+	GetUser(userID string) (*model.User,*model.AppError)
 	GetPost(id string) (*model.Post,*model.AppError)
 	GetPostThread(id string) (*model.PostList,*model.AppError)
 	GetChannel(id string) (*model.Channel,*model.AppError)
@@ -20,8 +21,11 @@ type MattermostBridge struct {
 }
 
 func (b MattermostBridge) canAccess(owner,channelID string,permission *model.Permission) bool {
+	user,err:=b.API.GetUser(owner)
+	if err!=nil || user==nil || user.DeleteAt!=0 || user.IsBot {return false}
 	channel,err:=b.API.GetChannel(channelID)
 	if err!=nil || channel==nil {return false}
+	if permission==model.PermissionCreatePost && channel.DeleteAt!=0 {return false}
 	if !b.API.HasPermissionToChannel(owner,channelID,permission) {return false}
 	// Mattermost's server-side plugin API operates with plugin authority,
 	// not the caller's channel visibility. Private/DM channels must always

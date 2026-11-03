@@ -61,7 +61,9 @@ func TestClientRejectsInsecureServerURL(t *testing.T) {
 
 func TestClientAcceptsLargeButValidFiftyPostContext(t *testing.T) {
 	posts:=make([]ContextPost,50)
-	for i:=range posts {posts[i]=ContextPost{ID:"post",Message:strings.Repeat("x",9000)}}
+	// Encoding escapes '<' as \u003c, expanding a legitimate 15KB post to
+	// about 90KB on the wire. Fifty such posts are still valid context.
+	for i:=range posts {posts[i]=ContextPost{ID:"post",Message:strings.Repeat("<",15000)}}
 	server:=httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
 		_ = json.NewEncoder(w).Encode(ContextResult{TargetPostID:"post",Posts:posts})
 	}))

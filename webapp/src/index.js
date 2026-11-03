@@ -1,7 +1,7 @@
 import React from 'react';
 
 const {isTwinPost} = require('./badge');
-const {readTokenStatus, rotateAgentToken, revokeAgentToken} = require('./agent_token_api');
+const {readTokenStatus, rotateAgentToken, revokeAgentToken, csrfHeaders} = require('./agent_token_api');
 const pluginID = 'com.darksoftwarefactory.twinmate';
 const apiURL = `/plugins/${pluginID}/api/config`;
 const provenanceURL = `/plugins/${pluginID}/api/provenance`;
@@ -83,7 +83,7 @@ function TwinmateSettingsRoot() {
         event.preventDefault();
         setStatus('Saving…');
         try {
-            const response = await fetch(apiURL, {method: 'PUT', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({endpoint, token, enabled, remove_token: removeToken})});
+            const response = await fetch(apiURL, {method: 'PUT', credentials: 'same-origin', headers: {'Content-Type': 'application/json', ...csrfHeaders()}, body: JSON.stringify({endpoint, token, enabled, remove_token: removeToken})});
             if (!response.ok) { throw new Error('Unable to save settings. Check the HTTPS endpoint.'); }
             setHasToken(!removeToken && (Boolean(token) || (hasToken && endpointOrigin(savedEndpoint) === endpointOrigin(endpoint))));
             setSavedEndpoint(endpoint);

@@ -17,6 +17,10 @@ import (
 
 const agentAPIPath = "/plugins/com.darksoftwarefactory.twinmate/api/agent"
 
+// The server allows 50 complete Mattermost text posts. JSON escaping can
+// expand a 15KiB message substantially, so 256KiB is not a valid bound.
+const maxAgentResponseBytes = 8 * 1024 * 1024
+
 type ContextPost struct {
 	ID string `json:"id"`
 	UserID string `json:"user_id"`
@@ -71,9 +75,9 @@ func (c *Client) request(ctx context.Context, method, path string, query url.Val
 	if err!=nil {return err}
 	defer resp.Body.Close()
 	if resp.StatusCode<200 || resp.StatusCode>=300 {return fmt.Errorf("Twinmate HTTP %d",resp.StatusCode)}
-	data,err:=io.ReadAll(io.LimitReader(resp.Body,256*1024+1))
+	data,err:=io.ReadAll(io.LimitReader(resp.Body,maxAgentResponseBytes+1))
 	if err!=nil {return err}
-	if len(data)>256*1024 {return errors.New("Twinmate response exceeds 256 KiB")}
+	if len(data)>maxAgentResponseBytes {return errors.New("Twinmate response exceeds 8 MiB")}
 	if err:=json.Unmarshal(data,output);err!=nil {return fmt.Errorf("invalid Twinmate response: %w",err)}
 	return nil
 }

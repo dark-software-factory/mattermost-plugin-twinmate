@@ -111,14 +111,15 @@ Return `{"reply":""}` when the agent chooses not to speak. Calls time out after 
 - All connections and per-DM permissions start disabled. **Enabling a twin means the external agent can receive new messages from that DM.** Communicate this to the other participant and obtain any consent your organization requires.
 - Private, loopback and link-local destinations are blocked by default, including DNS-resolved IPs at connection time; an administrator may enable private-network endpoints in plugin settings. This carries server-side request forgery risk and is for trusted corporate networks only.
 - Connection tokens are stored in the Mattermost plugin KV store. They are withheld from the browser's GET endpoint, but **they are not encrypted independently by this plugin**. Use a dedicated rotatable token and protect database backups.
+- By contrast, the inbound **Twinmate agent API key** is random, stored only as a SHA-256 digest, never returned on status GET, and can be rotated/revoked by its Mattermost owner. It authorizes both reading linked threads and posting as that user; keep the key out of logs and untrusted configuration files.
 - AI post badges are shown only after checking a Mattermost-authenticated, DM-member-restricted provenance endpoint. A user can type a similar emoji label manually, but cannot obtain a verified Twinmate badge through post props alone.
 - The plugin currently publishes posts with the owner's Mattermost user ID to preserve two-person DM membership. This is **not a separate bot user**. The AI label and custom post props disclose the origin; native mobile clients display the in-body label, not a custom native badge.
 - Delivery is best-effort in memory with a 32-worker limit: a restart, an HTTP timeout or overload can lose an event. There is no outbox, retry queue or cross-node deduplication yet.
 
 ## Known gaps
 
-- No outbound reverse tunnel for personal agents behind NAT.
-- No durable queue, attachments, group chat or full conversation context.
+- No outbound reverse tunnel for **automatic DM push** agents behind NAT. Agent-initiated API/MCP calls already work from local machines without incoming connections.
+- No durable auto-reply queue, attachment downloads or automatic group-chat replies. The agent-initiated API can post to authorized channels and read linked threads.
 - No mutual participant-consent flow or external data retention governance yet.
 - No custom mobile client code. Native mobile clients cannot load webapp plugin React components.
 - The agent-initiated API deliberately has no global search, attachment downloads, per-token fine-grained scopes or multiple simultaneous keys yet. Linked-context reading is capped at 50 posts.
