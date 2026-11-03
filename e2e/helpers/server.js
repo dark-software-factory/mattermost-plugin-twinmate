@@ -116,9 +116,14 @@ async function startServer() {
         await mattermost.copyFilesToContainer([{source: bundle, target: '/tmp/twinmate-e2e.tar.gz'}]);
         await exec(['mmctl', '--local', 'plugin', 'add', '/tmp/twinmate-e2e.tar.gz']);
         await exec(['mmctl', '--local', 'plugin', 'enable', pluginID]);
-        // This toggle is enabled only on the disposable E2E server, to allow
-        // HTTPS callbacks into its private, isolated Testcontainers network.
-        await exec(['mmctl', '--local', 'config', 'set', `PluginSettings.Plugins.${pluginID}.AllowPrivateEndpoints`, 'true']);
+        // Mattermost 11's 'config set' rejects nested PluginSettings.Plugins
+        // object paths. Patch just this one setting, leaving DB credentials
+        // and the rest of the disposable server config untouched.
+        await mattermost.copyFilesToContainer([{
+            source: path.join(repoRoot, 'e2e/fixtures/private-agent-config.json'),
+            target: '/tmp/twinmate-e2e-config.json',
+        }]);
+        await exec(['mmctl', '--local', 'config', 'patch', '/tmp/twinmate-e2e-config.json']);
 
         // Verify activation through the Mattermost API in installation.spec.js.
         // Avoid depending on mmctl's JSON envelope, which changes between releases.
