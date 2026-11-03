@@ -1,5 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
+const {execFileSync} = require('node:child_process');
 const {GenericContainer, Network, Wait} = require('testcontainers');
 const {PostgreSqlContainer} = require('@testcontainers/postgresql');
 
@@ -23,16 +25,19 @@ async function startServer() {
     let network;
     let postgres;
     let mattermost;
+    let fakeAgent;
+    let certificateDir;
     let logFile;
     const logDir = path.join(repoRoot, 'e2e', 'logs');
     fs.mkdirSync(logDir, {recursive: true});
 
     async function stop() {
-        for (const container of [mattermost, postgres, network]) {
+        for (const container of [mattermost, fakeAgent, postgres, network]) {
             if (!container) {continue;}
             try {await container.stop();} catch (err) {console.error('[e2e] cleanup:', err.message);}
         }
         await new Promise((resolve) => logFile ? logFile.end(resolve) : resolve());
+        if (certificateDir) {fs.rmSync(certificateDir, {recursive: true, force: true});}
     }
     async function exec(args) {
         const result = await mattermost.exec(args);
@@ -49,6 +54,25 @@ async function startServer() {
             withNetwork(network).withNetworkAliases('postgres').
             withStartupTimeout(240_000).start();
 
+        certificateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'twinmate-e2e-agent-'));
+        const cert = path.join(certificateDir, 'cert.pem');
+        const key = path.join(certificateDir, 'key.pem');
+        execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256',
+            '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=twinmate-agent',
+            '-addext', 'subjectAltName=DNS:twinmate-agent'], {stdio: 'ignore'});
+
+        fakeAgent = await new GenericContainer('node:24-alpine').
+            withNetwork(network).withNetworkAliases('twinmate-agent').
+            withExposedPorts(8080).
+            withCopyFilesToContainer([
+                {source: path.join(repoRoot, 'e2e/fixtures/fake-agent.js'), target: '/opt/twinmate-test/agent.js'},
+                {source: cert, target: '/opt/twinmate-test/cert.pem'},
+                {source: key, target: '/opt/twinmate-test/key.pem'},
+            ]).
+            withCommand(['node', '/opt/twinmate-test/agent.js']).
+            withWaitStrategy(Wait.forLogMessage('Twinmate test agent ready')).
+            withStartupTimeout(120_000).start();
+
         mattermost = await new GenericContainer(process.env.MM_E2E_IMAGE || 'mattermost/mattermost-team-edition:release-11.0').
             withEnvironment({
                 MM_SQLSETTINGS_DRIVERNAME: 'postgres',
@@ -61,10 +85,12 @@ async function startServer() {
                 MM_SERVICESETTINGS_ENABLEDESKTOPLANDINGPAGE: 'false',
                 MM_TEAMSETTINGS_ENABLEOPEN: 'true',
                 MM_EMAILSETTINGS_ENABLESIGNUPWITHEMAIL: 'true',
+                SSL_CERT_FILE: '/tmp/twinmate-e2e-agent-cert.pem',
             }).
             withExposedPorts(8065).
             withNetwork(network).withNetworkAliases('mattermost').
             withWaitStrategy(Wait.forLogMessage('Server is listening on')).
+            withCopyFilesToContainer([{source: cert, target: '/tmp/twinmate-e2e-agent-cert.pem'}]).
             withStartupTimeout(240_000).
             withLogConsumer((stream) => {
                 logFile = fs.createWriteStream(path.join(logDir, 'mattermost.log'), {flags: 'w'});
@@ -95,7 +121,8 @@ async function startServer() {
         // Avoid depending on mmctl's JSON envelope, which changes between releases.
         await exec(['mmctl', '--local', 'plugin', 'list']);
 
-        return {baseURL, users, stop};
+        const agentStatusURL = `http://${fakeAgent.getHost()}:${fakeAgent.getMappedPort(8080)}`;
+        return {baseURL, agentStatusURL, users, stop};
     } catch (error) {
         await stop();
         throw error;

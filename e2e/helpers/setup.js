@@ -7,7 +7,7 @@ module.exports = async function setup() {
         throw new Error('Twinmate E2E deliberately uses a disposable Mattermost. Existing servers are never seeded.');
     }
     const server = await startServer();
-    saveState({baseURL: server.baseURL, users: server.users});
+    saveState({baseURL: server.baseURL, agentStatusURL: server.agentStatusURL, users: server.users});
     return async () => {
         clearState();
         await server.stop();
