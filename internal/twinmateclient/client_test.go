@@ -58,3 +58,16 @@ func TestClientRejectsInsecureServerURL(t *testing.T) {
 	if _,err:=New("http://mm.example.com","token",nil);err==nil {t.Fatal("plain HTTP may leak agent token")}
 	if _,err:=New("https://mm.example.com","",nil);err==nil {t.Fatal("missing token accepted")}
 }
+
+func TestClientAcceptsLargeButValidFiftyPostContext(t *testing.T) {
+	posts:=make([]ContextPost,50)
+	for i:=range posts {posts[i]=ContextPost{ID:"post",Message:strings.Repeat("x",9000)}}
+	server:=httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+		_ = json.NewEncoder(w).Encode(ContextResult{TargetPostID:"post",Posts:posts})
+	}))
+	defer server.Close()
+	client,err:=New(server.URL,"tmt_test",server.Client())
+	if err!=nil {t.Fatal(err)}
+	result,err:=client.GetContext(context.Background(),"post")
+	if err!=nil || len(result.Posts)!=50 {t.Fatalf("valid context truncated: %d posts, %v",len(result.Posts),err)}
+}
