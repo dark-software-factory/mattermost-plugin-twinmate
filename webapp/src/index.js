@@ -1,6 +1,7 @@
 import React from 'react';
 
 const {isTwinPost} = require('./badge');
+const {readTokenStatus, rotateAgentToken, revokeAgentToken} = require('./agent_token_api');
 const pluginID = 'com.darksoftwarefactory.twinmate';
 const apiURL = `/plugins/${pluginID}/api/config`;
 const provenanceURL = `/plugins/${pluginID}/api/provenance`;
@@ -11,7 +12,7 @@ function endpointOrigin(value) {
 
 const styles = {
     backdrop: {position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center'},
-    panel: {width: 'min(520px, calc(100vw - 32px))', borderRadius: 12, background: 'var(--center-channel-bg, #fff)', color: 'var(--center-channel-color, #222)', padding: 24, boxShadow: '0 18px 50px #0004'},
+    panel: {width: 'min(520px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', borderRadius: 12, background: 'var(--center-channel-bg, #fff)', color: 'var(--center-channel-color, #222)', padding: 24, boxShadow: '0 18px 50px #0004'},
     field: {display: 'block', width: '100%', boxSizing: 'border-box', border: '1px solid var(--center-channel-color-20, #ccc)', background: 'var(--center-channel-bg, #fff)', color: 'inherit', borderRadius: 6, padding: 10, marginTop: 6},
     label: {display: 'block', marginTop: 16, fontWeight: 600},
     secondary: {opacity: .75, fontSize: 13, lineHeight: 1.5},
@@ -27,9 +28,12 @@ function TwinmateSettingsRoot() {
     const [savedEndpoint, setSavedEndpoint] = React.useState('');
     const [removeToken, setRemoveToken] = React.useState(false);
     const [status, setStatus] = React.useState('');
+    const [hasAgentToken, setHasAgentToken] = React.useState(false);
+    const [issuedAgentToken, setIssuedAgentToken] = React.useState('');
+    const [agentTokenStatus, setAgentTokenStatus] = React.useState('');
 
     React.useEffect(() => {
-        const openSettings = () => { setOpen(true); setStatus(''); };
+        const openSettings = () => { setOpen(true); setStatus(''); setIssuedAgentToken(''); setAgentTokenStatus(''); };
         window.addEventListener('twinmate:open', openSettings);
         return () => window.removeEventListener('twinmate:open', openSettings);
     }, []);
@@ -46,6 +50,35 @@ function TwinmateSettingsRoot() {
         return () => { alive = false; };
     }, [open]);
 
+    React.useEffect(() => {
+        if (!open) { return; }
+        let alive = true;
+        readTokenStatus().then((data) => { if (alive) { setHasAgentToken(Boolean(data.has_token)); } })
+            .catch((error) => { if (alive) { setAgentTokenStatus(error.message); } });
+        return () => { alive = false; };
+    }, [open]);
+
+    async function issueAgentToken() {
+        if (hasAgentToken && !window.confirm('Rotate your agent token? The existing OpenClaw/MCP connection will stop working.')) { return; }
+        setAgentTokenStatus('Generating token…');
+        try {
+            const generated = await rotateAgentToken();
+            setIssuedAgentToken(generated);
+            setHasAgentToken(true);
+            setAgentTokenStatus('Copy this token now. Twinmate will never display it again.');
+        } catch (error) { setAgentTokenStatus(error.message); }
+    }
+
+    async function removeAgentToken() {
+        if (!window.confirm('Revoke access for your configured OpenClaw/MCP agent?')) { return; }
+        try {
+            await revokeAgentToken();
+            setIssuedAgentToken('');
+            setHasAgentToken(false);
+            setAgentTokenStatus('Access token revoked.');
+        } catch (error) { setAgentTokenStatus(error.message); }
+    }
+
     async function save(event) {
         event.preventDefault();
         setStatus('Saving…');
@@ -61,12 +94,24 @@ function TwinmateSettingsRoot() {
     }
 
     if (!open) { return null; }
-    return React.createElement('div', {style: styles.backdrop, onClick: () => setOpen(false)},
+    return React.createElement('div', {style: styles.backdrop, onClick: () => { setIssuedAgentToken(''); setOpen(false); }},
         React.createElement('div', {style: styles.panel, role: 'dialog', 'aria-modal': true, 'aria-label': 'Twinmate settings', onClick: (e) => e.stopPropagation()},
             React.createElement('div', {style: {display: 'flex', justifyContent: 'space-between', alignItems: 'center'}},
                 React.createElement('h2', {style: {margin: 0}}, '🤖 Twinmate'),
-                React.createElement('button', {type: 'button', onClick: () => setOpen(false), 'aria-label': 'Close'}, '×')),
-            React.createElement('p', {style: styles.secondary}, 'Connect your personal HTTPS agent. Only DMs you explicitly enable can send new messages to it. Your external agent receives the message text and participant IDs.'),
+                React.createElement('button', {type: 'button', onClick: () => { setIssuedAgentToken(''); setOpen(false); }, 'aria-label': 'Close'}, '×')),
+            React.createElement('h3', null, 'OpenClaw / MCP agent access'),
+            React.createElement('p', {style: styles.secondary}, 'Give your local agent a revocable Twinmate key to read Mattermost discussions by link and publish clearly marked AI messages in channels where you have permission. Do not share it or commit it to source control.'),
+            React.createElement('div', {style: {display: 'flex', gap: 8, flexWrap: 'wrap'}},
+                React.createElement('button', {type: 'button', style: styles.button, onClick: issueAgentToken}, hasAgentToken ? 'Rotate agent key' : 'Generate agent key'),
+                hasAgentToken && React.createElement('button', {type: 'button', style: {...styles.button, background: '#a33434'}, onClick: removeAgentToken}, 'Revoke key')),
+            issuedAgentToken && React.createElement('div', null,
+                React.createElement('label', {style: styles.label}, 'One-time Twinmate agent key'),
+                React.createElement('input', {style: styles.field, type: 'text', value: issuedAgentToken, readOnly: true, onFocus: (e) => e.target.select()}),
+                React.createElement('button', {type: 'button', style: {...styles.button, marginTop: 8}, onClick: () => navigator.clipboard.writeText(issuedAgentToken)}, 'Copy token')),
+            React.createElement('p', {style: styles.secondary, role: 'status'}, agentTokenStatus),
+            React.createElement('hr', {style: {marginTop: 20, opacity: .2}}),
+            React.createElement('h3', null, 'Automatic DM replies (optional)'),
+            React.createElement('p', {style: styles.secondary}, 'Connect a reachable HTTPS agent to answer new DMs automatically. This is separate from the local agent access key above. Only DMs you explicitly enable can send messages to this endpoint.'),
             React.createElement('form', {onSubmit: save},
                 React.createElement('label', {style: styles.label, htmlFor: 'twinmate-endpoint'}, 'Agent HTTPS endpoint'),
                 React.createElement('input', {id: 'twinmate-endpoint', style: styles.field, type: 'url', placeholder: 'https://agent.example.com/events', value: endpoint, onChange: (e) => setEndpoint(e.target.value)}),

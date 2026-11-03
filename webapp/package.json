@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test": "node --test src/badge.test.js",
+    "test": "node --test src/*.test.js",
     "build": "webpack --mode production"
   },
   "dependencies": {

@@ -1,7 +1,7 @@
 PLUGIN_ID := com.darksoftwarefactory.twinmate
 VERSION := 0.1.0
 
-.PHONY: test build-server build-web bundle clean
+.PHONY: test build-server build-web bundle clean build-mcp
 
 test:
 	go test ./...
@@ -13,6 +13,12 @@ build-server:
 
 build-web:
 	cd webapp && npm run build
+
+build-mcp:
+	mkdir -p dist
+	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o dist/twinmate-mcp-darwin-arm64 ./cmd/twinmate-mcp
+	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o dist/twinmate-mcp-darwin-amd64 ./cmd/twinmate-mcp
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/twinmate-mcp-linux-amd64 ./cmd/twinmate-mcp
 
 bundle: build-server build-web
 	mkdir -p dist/plugin/server/dist dist/plugin/webapp/dist

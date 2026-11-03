@@ -1,11 +1,13 @@
 # Twinmate
 
-Personal digital twins for [Mattermost](https://mattermost.com). Each person connects their own HTTPS AI agent. The agent may answer new messages **in the existing one-to-one direct message** as that person, with a visible AI attribution.
+Personal digital twins for [Mattermost](https://mattermost.com). A developer's local OpenClaw or another agent can retrieve a linked discussion and publish work results as the developer's visibly marked AI twin. The plugin also supports optional automatic responses to new one-to-one DMs.
 
 **Status:** v0.1.0 preview. Not production-hardened; test on a non-production Mattermost instance first.
 
 ## What works
 
+- Agent-initiated API: issue a personal Twinmate key, retrieve a Mattermost thread by permalink, and write a new message or thread reply in a channel where its owner may post. Local agents need only outbound HTTPS, without a Mattermost PAT.
+- Local Go MCP adapter: stdio tools `twinmate_get_context` and `twinmate_send_message`, buildable for macOS arm64/amd64 and Linux amd64.
 - Personal HTTPS agent endpoint and optional bearer token configured in **Main menu → Twinmate · My digital twin**.
 - Explicit per-DM opt-in: `/twinmate on`, `/twinmate off`, `/twinmate status` (also available in native mobile apps).
 - Only the receiving participant's enabled agent is called after a human sends a new DM message. Posts from Mattermost bot users and system integrations are ignored. No group channels, background polling, or DM history extraction.
@@ -15,7 +17,7 @@ Personal digital twins for [Mattermost](https://mattermost.com). Each person con
 ## Requirements
 
 - Mattermost Server **v11+**, with plugin support enabled.
-- A reachable HTTPS endpoint implementing the contract below. The server must be able to call it directly.
+- A reachable HTTPS endpoint is necessary **only for optional automatic DM replies**; the agent-initiated API requires no publicly reachable agent machine.
 - Admin enables installation/upload of plugins. A Linux amd64 package is built by CI.
 
 ## Build and install
@@ -25,9 +27,54 @@ go mod tidy
 npm ci --prefix webapp
 make test
 make bundle
+make build-mcp
 ```
 
-The resulting `dist/com.darksoftwarefactory.twinmate-0.1.0.tar.gz` can be uploaded in the Mattermost System Console's plugin management page. The GitHub Actions workflow also publishes this archive as a build artifact when it succeeds.
+The resulting `dist/com.darksoftwarefactory.twinmate-0.1.0.tar.gz` can be uploaded in the Mattermost System Console's plugin management page. The GitHub Actions workflow publishes this plugin archive plus separate local MCP binaries as build artifacts when it succeeds.
+
+## Connect OpenClaw or another local MCP client
+
+1. Install the Twinmate plugin. Open **Main menu → Twinmate · My digital twin** and click **Generate agent key**. Copy it immediately: the server stores only its hash. Rotating/revoking the key invalidates the old one.
+2. Build the stdio MCP binary using `make build-mcp` or download the `twinmate-mcp-binaries` build artifact. For Apple Silicon use `dist/twinmate-mcp-darwin-arm64`; for Intel macOS use `dist/twinmate-mcp-darwin-amd64`.
+3. Point your MCP host at the binary and pass the Mattermost URL and the new Twinmate key. The config format below is common for stdio MCP hosts; adapt the keys to your host if necessary:
+
+```json
+{
+  "mcpServers": {
+    "twinmate": {
+      "command": "/path/to/twinmate-mcp-darwin-arm64",
+      "env": {
+        "TWINMATE_MATTERMOST_URL": "https://mattermost.example.com",
+        "TWINMATE_AGENT_TOKEN": "<your-one-time-Twinmate-key>"
+      }
+    }
+  }
+}
+```
+
+The local MCP adapter exposes `twinmate_get_context(reference)` for a post ID or full permalink and `twinmate_send_message(message, channel_id?, reply_to_post_id?)` for posting in a channel/thread. Generated posts use the existing verified AI attribution. No `/twinmate on` command is necessary for **agent-initiated** calls; that command controls *automatic* DM responses only.
+
+### Direct HTTPS API
+
+The MCP adapter calls the same API any developer tool can use. Supply `X-Twinmate-Token`, not a Mattermost personal access token:
+
+```bash
+curl -H "X-Twinmate-Token: $TWINMATE_AGENT_TOKEN" \
+  'https://mattermost.example.com/plugins/com.darksoftwarefactory.twinmate/api/agent/context?post_id=<post-id>'
+```
+
+Post a result under a thread:
+
+```bash
+curl -X POST -H 'Content-Type: application/json' \
+  -H "X-Twinmate-Token: $TWINMATE_AGENT_TOKEN" \
+  -d '{"reply_to_post_id":"<post-id>","message":"Investigation complete: the race was fixed."}' \
+  'https://mattermost.example.com/plugins/com.darksoftwarefactory.twinmate/api/agent/messages'
+```
+
+`GET /api/agent/context` also accepts `?url=<Mattermost-permalink>`. It returns up to 50 chronological, non-deleted text posts from that thread, never fetches external URLs, and does not provide broad message search or attachment downloads. The plugin checks Mattermost read permissions for each request; publishing checks both write permission and channel membership. **The personal key grants read-by-link and send-as-owner capabilities:** keep it secret, and revoke it if your machine is compromised.
+
+## Optional automatic DM responses
 
 1. Open the Mattermost main menu, then **Twinmate · My digital twin**.
 2. Enter your agent's HTTPS endpoint and optional bearer token, enable the connection, and save.
@@ -36,7 +83,7 @@ The resulting `dist/com.darksoftwarefactory.twinmate-0.1.0.tar.gz` can be upload
 
 When changing the agent's hostname, the previously saved bearer token is cleared unless you explicitly enter a replacement. When modifying only the path on the same host, the token is preserved. The settings form also lets you remove the current token. Disabling a twin prevents a pending agent reply from being published once the external call finishes, but it cannot retract an already-transmitted event.
 
-## Agent API
+## External push-agent callback contract
 
 Twinmate sends `POST https://your-agent.example/events` with `Content-Type: application/json`, an `X-Twinmate-Event-ID` header, and `Authorization: Bearer <configured-token>` if provided.
 
@@ -74,7 +121,8 @@ Return `{"reply":""}` when the agent chooses not to speak. Calls time out after 
 - No durable queue, attachments, group chat or full conversation context.
 - No mutual participant-consent flow or external data retention governance yet.
 - No custom mobile client code. Native mobile clients cannot load webapp plugin React components.
+- The agent-initiated API deliberately has no global search, attachment downloads, per-token fine-grained scopes or multiple simultaneous keys yet. Linked-context reading is capped at 50 posts.
 
 ## Development
 
-The [design](docs/superpowers/specs/2026-11-03-twinmate-mvp-design.md) and [implementation plan](docs/superpowers/plans/2026-11-03-twinmate-mvp.md) capture current decisions and tradeoffs.
+The [original DM design](docs/superpowers/specs/2026-11-03-twinmate-mvp-design.md) and [agent-initiated API design](docs/superpowers/specs/2026-11-03-twinmate-agent-api-design.md), with their implementation plans, capture current decisions and tradeoffs.
