@@ -17,21 +17,24 @@ import (
 
 const agentAPIPath = "/plugins/com.darksoftwarefactory.twinmate/api/agent"
 
-// The server allows 50 complete Mattermost text posts. JSON escaping can
-// expand a 15KiB message substantially, so 256KiB is not a valid bound.
+// JSON escaping can expand a 15KiB message substantially. A page of 50
+// posts may exceed 256KiB even though every message is valid.
 const maxAgentResponseBytes = 8 * 1024 * 1024
 
 type ContextPost struct {
 	ID string `json:"id"`
+	ChannelID string `json:"channel_id"`
 	UserID string `json:"user_id"`
 	RootID string `json:"root_id,omitempty"`
 	Message string `json:"message"`
 	CreateAt int64 `json:"create_at"`
 }
-type ContextResult struct {
+type MessagePage struct {
 	ChannelID string `json:"channel_id"`
-	TargetPostID string `json:"target_post_id"`
+	AnchorPostID string `json:"anchor_post_id"`
 	Posts []ContextPost `json:"posts"`
+	HasMore bool `json:"has_more"`
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 type SendRequest struct {
 	ChannelID string `json:"channel_id,omitempty"`
@@ -82,12 +85,24 @@ func (c *Client) request(ctx context.Context, method, path string, query url.Val
 	return nil
 }
 
-func (c *Client) GetContext(ctx context.Context, reference string) (ContextResult,error) {
-	var result ContextResult
+func (c *Client) GetPost(ctx context.Context, reference string) (ContextPost,error) {
+	var result ContextPost
 	if strings.TrimSpace(reference)=="" {return result,errors.New("Mattermost post ID or permalink required")}
-	query:=url.Values{}
-	if strings.Contains(reference,"://") {query.Set("url",reference)} else {query.Set("post_id",reference)}
-	err:=c.request(ctx,http.MethodGet,"/context",query,nil,&result)
+	query:=url.Values{"reference":{reference}}
+	err:=c.request(ctx,http.MethodGet,"/posts/get",query,nil,&result)
+	return result,err
+}
+
+func (c *Client) ListPosts(ctx context.Context, reference, direction, scope string, limit int) (MessagePage,error) {
+	var result MessagePage
+	if strings.TrimSpace(reference)=="" {return result,errors.New("Mattermost post ID or permalink required")}
+	if direction!="before" && direction!="after" {return result,errors.New("direction must be before or after")}
+	if scope=="" {scope="channel"}
+	if scope!="channel" && scope!="thread" {return result,errors.New("scope must be channel or thread")}
+	if limit==0 {limit=20}
+	if limit<1 || limit>50 {return result,errors.New("limit must be between 1 and 50")}
+	query:=url.Values{"reference":{reference},"direction":{direction},"scope":{scope},"limit":{fmt.Sprint(limit)}}
+	err:=c.request(ctx,http.MethodGet,"/posts/list",query,nil,&result)
 	return result,err
 }
 

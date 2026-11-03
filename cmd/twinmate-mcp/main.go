@@ -9,8 +9,14 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-type GetContextInput struct {
+type GetPostInput struct {
 	Reference string `json:"reference" jsonschema:"Mattermost message permalink or post ID"`
+}
+type ListPostsInput struct {
+	Reference string `json:"reference" jsonschema:"Mattermost message permalink or post ID used as the pagination anchor"`
+	Direction string `json:"direction" jsonschema:"before or after the reference post"`
+	Scope string `json:"scope,omitempty" jsonschema:"channel or thread; defaults to channel"`
+	Limit int `json:"limit,omitempty" jsonschema:"Number of messages to fetch from 1 to 50; defaults to 20"`
 }
 type SendMessageInput struct {
 	ChannelID string `json:"channel_id,omitempty" jsonschema:"Mattermost channel ID; optional if replying to a post"`
@@ -22,9 +28,14 @@ func main() {
 	client,err:=twinmateclient.New(os.Getenv("TWINMATE_MATTERMOST_URL"),os.Getenv("TWINMATE_AGENT_TOKEN"),nil)
 	if err!=nil {log.Fatal(err)} // log writes to stderr, never stdout
 	server:=mcp.NewServer(&mcp.Implementation{Name:"twinmate",Version:"0.1.0"},nil)
-	mcp.AddTool(server,&mcp.Tool{Name:"twinmate_get_context",Description:"Read a Mattermost thread by permalink or post ID using the current user's Twinmate permissions"},
-		func(ctx context.Context,_ *mcp.CallToolRequest,in GetContextInput)(*mcp.CallToolResult,twinmateclient.ContextResult,error) {
-			result,err:=client.GetContext(ctx,in.Reference)
+	mcp.AddTool(server,&mcp.Tool{Name:"twinmate_get_post",Description:"Read one Mattermost message by permalink or post ID using the user's own channel permissions"},
+		func(ctx context.Context,_ *mcp.CallToolRequest,in GetPostInput)(*mcp.CallToolResult,twinmateclient.ContextPost,error) {
+			result,err:=client.GetPost(ctx,in.Reference)
+			return nil,result,err
+		})
+	mcp.AddTool(server,&mcp.Tool{Name:"twinmate_list_posts",Description:"Read messages before or after any post, with channel/thread scope and cursor pagination controlled by the agent"},
+		func(ctx context.Context,_ *mcp.CallToolRequest,in ListPostsInput)(*mcp.CallToolResult,twinmateclient.MessagePage,error) {
+			result,err:=client.ListPosts(ctx,in.Reference,in.Direction,in.Scope,in.Limit)
 			return nil,result,err
 		})
 	mcp.AddTool(server,&mcp.Tool{Name:"twinmate_send_message",Description:"Publish a message or thread reply as the current user's visibly marked AI twin"},

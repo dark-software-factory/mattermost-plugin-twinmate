@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sort"
 	"strings"
 
@@ -20,21 +21,25 @@ var (
 
 type ContextPost struct {
 	ID string `json:"id"`
+	ChannelID string `json:"channel_id"`
 	UserID string `json:"user_id"`
 	RootID string `json:"root_id,omitempty"`
 	Message string `json:"message"`
 	CreateAt int64 `json:"create_at"`
 }
 
-type ContextResult struct {
+type MessagePage struct {
 	ChannelID string `json:"channel_id"`
-	TargetPostID string `json:"target_post_id"`
+	AnchorPostID string `json:"anchor_post_id"`
 	Posts []ContextPost `json:"posts"`
+	HasMore bool `json:"has_more"`
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 
 type AgentTokenAuthenticator interface { Authenticate(raw string) (string,error) }
 type AgentBridge interface {
-	Context(owner, postID string) (ContextResult,error)
+	Get(owner, postID string) (ContextPost,error)
+	List(owner, postID, direction, scope string, limit int) (MessagePage,error)
 	Send(owner, channel, reply, message string) (string,error)
 }
 
@@ -60,28 +65,21 @@ func parsePostReference(input, siteURL string) (string,error) {
 	return id,nil
 }
 
-// Limit a possibly large Mattermost thread and never export deleted posts or
-// post Props. Preserve the root plus the recent conversation when truncating.
-func sanitizeThread(list *model.PostList, target string, limit int) []ContextPost {
-	if list==nil || limit<=0 {return []ContextPost{}}
+// Expose only message text and stable IDs, never props, attachments, or deleted posts.
+func sanitizePosts(list *model.PostList) []ContextPost {
+	if list==nil {return []ContextPost{}}
 	posts:=make([]ContextPost,0,len(list.Order))
 	for _,id:=range list.Order {
 		post:=list.Posts[id]
 		if post==nil || post.DeleteAt!=0 {continue}
-		posts=append(posts,ContextPost{ID:post.Id,UserID:post.UserId,RootID:post.RootId,Message:post.Message,CreateAt:post.CreateAt})
+		posts=append(posts,postToAgentPost(post))
 	}
 	sort.SliceStable(posts,func(i,j int)bool {if posts[i].CreateAt==posts[j].CreateAt{return posts[i].ID<posts[j].ID};return posts[i].CreateAt<posts[j].CreateAt})
-	if len(posts)<=limit {return posts}
-	// Include the earliest root for orientation; keep the latest messages and
-	// ensure the linked target survives truncation.
-	selected:=append([]ContextPost{posts[0]},posts[len(posts)-(limit-1):]...)
-	hasTarget:=false
-	for _,p:=range selected {if p.ID==target {hasTarget=true;break}}
-	if !hasTarget {
-		for _,p:=range posts {if p.ID==target {selected[1]=p;break}}
-	}
-	sort.SliceStable(selected,func(i,j int)bool {if selected[i].CreateAt==selected[j].CreateAt{return selected[i].ID<selected[j].ID};return selected[i].CreateAt<selected[j].CreateAt})
-	return selected
+	return posts
+}
+
+func postToAgentPost(post *model.Post) ContextPost {
+	return ContextPost{ID:post.Id,ChannelID:post.ChannelId,UserID:post.UserId,RootID:post.RootId,Message:post.Message,CreateAt:post.CreateAt}
 }
 
 func writeAgentError(w http.ResponseWriter, status int, message string) {
@@ -105,18 +103,30 @@ func (h AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err,ErrInvalidAgentToken) {writeAgentError(w,http.StatusUnauthorized,"invalid Twinmate token");return}
 	if err!=nil {writeAgentError(w,http.StatusInternalServerError,"authentication failed");return}
 	switch r.URL.Path {
-	case "/api/agent/context":
+	case "/api/agent/posts/get", "/api/agent/posts/list":
 		if r.Method!=http.MethodGet {writeAgentError(w,http.StatusMethodNotAllowed,"GET required");return}
-		input:=r.URL.Query().Get("post_id")
-		if r.URL.Query().Has("url") {
-			if input!="" {writeAgentError(w,http.StatusBadRequest,"choose post_id or url");return}
-			input=r.URL.Query().Get("url")
-		}
-		id,err:=parsePostReference(input,h.SiteURL)
+		id,err:=parsePostReference(r.URL.Query().Get("reference"),h.SiteURL)
 		if err!=nil {writeAgentError(w,http.StatusBadRequest,"invalid Mattermost permalink or post ID");return}
-		result,err:=h.Bridge.Context(owner,id)
+		if r.URL.Path=="/api/agent/posts/get" {
+			post,err:=h.Bridge.Get(owner,id)
+			if err!=nil {agentBridgeError(w,err);return}
+			_ = json.NewEncoder(w).Encode(post)
+			return
+		}
+		q:=r.URL.Query()
+		direction:=q.Get("direction")
+		if direction!="before" && direction!="after" {writeAgentError(w,http.StatusBadRequest,"direction must be before or after");return}
+		scope:=q.Get("scope")
+		if scope=="" {scope="channel"}
+		if scope!="channel" && scope!="thread" {writeAgentError(w,http.StatusBadRequest,"scope must be channel or thread");return}
+		limit:=20
+		if q.Has("limit") {
+			limit,err=strconv.Atoi(q.Get("limit"))
+			if err!=nil || limit<1 || limit>50 {writeAgentError(w,http.StatusBadRequest,"limit must be 1..50");return}
+		}
+		page,err:=h.Bridge.List(owner,id,direction,scope,limit)
 		if err!=nil {agentBridgeError(w,err);return}
-		_ = json.NewEncoder(w).Encode(result)
+		_ = json.NewEncoder(w).Encode(page)
 	case "/api/agent/messages":
 		if r.Method!=http.MethodPost {writeAgentError(w,http.StatusMethodNotAllowed,"POST required");return}
 		if !strings.HasPrefix(r.Header.Get("Content-Type"),"application/json") {writeAgentError(w,http.StatusUnsupportedMediaType,"application/json required");return}

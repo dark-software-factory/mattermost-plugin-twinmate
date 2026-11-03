@@ -10,6 +10,8 @@ type MattermostAgentAPI interface {
 	GetUser(userID string) (*model.User,*model.AppError)
 	GetPost(id string) (*model.Post,*model.AppError)
 	GetPostThread(id string) (*model.PostList,*model.AppError)
+	GetPostsBefore(channelID,postID string,page,perPage int) (*model.PostList,*model.AppError)
+	GetPostsAfter(channelID,postID string,page,perPage int) (*model.PostList,*model.AppError)
 	GetChannel(id string) (*model.Channel,*model.AppError)
 	GetChannelMember(channelID,userID string) (*model.ChannelMember,*model.AppError)
 	HasPermissionToChannel(userID,channelID string,permission *model.Permission) bool
@@ -37,14 +39,61 @@ func (b MattermostBridge) canAccess(owner,channelID string,permission *model.Per
 	return true
 }
 
-func (b MattermostBridge) Context(owner,postID string) (ContextResult,error) {
+func (b MattermostBridge) readablePost(owner,postID string) (*model.Post,error) {
 	post,err:=b.API.GetPost(postID)
-	if err!=nil || post==nil || post.DeleteAt!=0 {return ContextResult{},ErrAgentNotFound}
-	if !b.canAccess(owner,post.ChannelId,model.PermissionReadChannel) {return ContextResult{},ErrAgentForbidden}
-	list,err:=b.API.GetPostThread(postID)
-	if err!=nil || list==nil {return ContextResult{},ErrAgentNotFound}
-	result:=ContextResult{ChannelID:post.ChannelId,TargetPostID:postID,Posts:sanitizeThread(list,postID,50)}
-	return result,nil
+	if err!=nil || post==nil || post.DeleteAt!=0 {return nil,ErrAgentNotFound}
+	if !b.canAccess(owner,post.ChannelId,model.PermissionReadChannel) {return nil,ErrAgentForbidden}
+	return post,nil
+}
+
+func (b MattermostBridge) Get(owner,postID string) (ContextPost,error) {
+	post,err:=b.readablePost(owner,postID)
+	if err!=nil {return ContextPost{},err}
+	return postToAgentPost(post),nil
+}
+
+// List returns one page relative to an anchor. The agent controls the direction,
+// scope, and page size; no server-side context window is inferred.
+func (b MattermostBridge) List(owner,postID,direction,scope string,limit int) (MessagePage,error) {
+	if (direction!="before" && direction!="after") || (scope!="channel" && scope!="thread") || limit<1 || limit>50 {return MessagePage{},ErrAgentBadInput}
+	anchor,err:=b.readablePost(owner,postID)
+	if err!=nil {return MessagePage{},err}
+	var list *model.PostList
+	var appErr *model.AppError
+	if scope=="thread" {
+		list,appErr=b.API.GetPostThread(anchor.Id)
+	} else if direction=="before" {
+		list,appErr=b.API.GetPostsBefore(anchor.ChannelId,anchor.Id,0,limit+1)
+	} else {
+		list,appErr=b.API.GetPostsAfter(anchor.ChannelId,anchor.Id,0,limit+1)
+	}
+	if appErr!=nil || list==nil {return MessagePage{},ErrAgentNotFound}
+	posts:=sanitizePosts(list)
+	// Some server API responses include the anchor itself. Keep the ordering
+	// and cursor semantics deterministic for both channel and thread scopes.
+	filtered:=make([]ContextPost,0,len(posts))
+	for _,post:=range posts {
+		if post.ChannelID!=anchor.ChannelId {continue}
+		if scope=="thread" {
+			root:=anchor.RootId
+			if root=="" {root=anchor.Id}
+			if post.ID!=root && post.RootID!=root {continue}
+		}
+		if direction=="before" && (post.CreateAt<anchor.CreateAt || (post.CreateAt==anchor.CreateAt && post.ID<anchor.Id)) {
+			filtered=append(filtered,post)
+		} else if direction=="after" && (post.CreateAt>anchor.CreateAt || (post.CreateAt==anchor.CreateAt && post.ID>anchor.Id)) {
+			filtered=append(filtered,post)
+		}
+	}
+	page:=MessagePage{ChannelID:anchor.ChannelId,AnchorPostID:anchor.Id,Posts:filtered}
+	if len(filtered)>limit {
+		page.HasMore=true
+		if direction=="before" {page.Posts=filtered[len(filtered)-limit:]} else {page.Posts=filtered[:limit]}
+	}
+	if len(page.Posts)!=0 {
+		if direction=="before" {page.NextCursor=page.Posts[0].ID} else {page.NextCursor=page.Posts[len(page.Posts)-1].ID}
+	}
+	return page,nil
 }
 
 func (b MattermostBridge) Send(owner,channelID,replyID,text string) (string,error) {

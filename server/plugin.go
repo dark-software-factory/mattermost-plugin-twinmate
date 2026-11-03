@@ -16,7 +16,7 @@ import (
 	"github.com/mattermost/mattermost/server/public/plugin"
 )
 
-const twinmateLabel = "🤖 **Twinmate · AI-двойник**\n\n"
+const twinmateLabel = "🤖 **Twinmate · AI-generated**\n\n"
 
 type storedPostProvenance struct {
 	OwnerID string `json:"owner_id"`
@@ -252,7 +252,7 @@ func (p *Plugin) verifiedPostForViewer(postID, viewerID string) (bool, error) {
 }
 
 func (p *Plugin) ServeHTTP(_ *plugin.Context, w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/api/agent/context" || r.URL.Path == "/api/agent/messages" {
+	if r.URL.Path == "/api/agent/posts/get" || r.URL.Path == "/api/agent/posts/list" || r.URL.Path == "/api/agent/messages" {
 		siteURL := ""
 		if config := p.API.GetConfig(); config != nil && config.ServiceSettings.SiteURL != nil {
 			siteURL = *config.ServiceSettings.SiteURL

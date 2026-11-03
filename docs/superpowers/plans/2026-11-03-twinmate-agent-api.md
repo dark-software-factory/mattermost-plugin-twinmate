@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Enable personal local agents to retrieve a Mattermost thread by URL and publish AI-labeled posts through a scoped Twinmate API and Go MCP adapter.
+**Goal:** Enable personal local agents to retrieve individual Mattermost messages, page around them on demand, and publish AI-labeled posts through a scoped Twinmate API and Go MCP adapter.
 
 **Architecture:** Server-side Go token issuance/auth verifies a self-owned, revocable credential; a narrow REST bridge delegates channel permission checks and post writes to Mattermost. A local Go stdio MCP process wraps the REST client without a Mattermost PAT.
 
@@ -14,7 +14,7 @@
 
 - Preserve current plugin ID `com.darksoftwarefactory.twinmate`, existing auto-DM behavior, mobile label, and server-verified web provenance.
 - Only one active Twinmate API token per owner, hash-at-rest, shown once; no Mattermost PAT passed to agents.
-- Context is thread-scoped and limited to at most 50 posts; only owner-authorized channels.
+- Read pagination is agent-controlled (`before`/`after`, channel/thread scope), at most 50 posts per page; only owner-authorized channels.
 - Token API authenticated by verified Mattermost session, agent API by `X-Twinmate-Token`.
 - Feature stays on existing PR branch and is verified by GitHub CI until a local Go runtime is available.
 
@@ -37,13 +37,13 @@
 - [ ] Implement token manager with cryptographic randomness and constant-time verification, then session-only HTTP handler.
 - [ ] Push and verify relevant Go tests and `go vet` pass (GREEN).
 
-### Task 2: Context and write REST agent API
+### Task 2: Primitive read and write REST agent API
 
-**Files:** Create `server/agent_api.go`, `server/agent_api_test.go`; Modify `server/plugin.go` to route `/api/agent/context` and `/api/agent/messages`, and reuse provenance post creation.
+**Files:** Create `server/agent_api.go`, `server/agent_api_test.go`; Modify `server/plugin.go` to route `/api/agent/posts/get`, `/api/agent/posts/list`, and `/api/agent/messages`, and reuse provenance post creation.
 
-**Interfaces:** `Bridge` implements `Context(ownerID, postID string) (ContextResult,error)` and `Send(ownerID, channelID, replyID, text string) (postID string,error)`; `AgentHandler{Tokens,Bridge,SiteURL}` verifies token and request shape.
+**Interfaces:** `Bridge` implements `Get(ownerID, postID)`, `List(ownerID, postID, direction, scope, limit)` and `Send(ownerID, channelID, replyID, text)`; `AgentHandler{Tokens,Bridge,SiteURL}` verifies token and request shape.
 
-- [ ] Write tests for token auth, URL/post ID extraction, read permission, thread ordering/limit, reply-channel mismatch, no impersonation, and successful AI-marked write.
+- [ ] Write tests for token auth, URL/post ID extraction, read permission, channel/thread pagination, reply-channel mismatch, no impersonation, and successful AI-marked write.
 - [ ] Push test changes and verify CI fails for the expected undefined symbols (RED).
 - [ ] Implement a narrow REST handler and permission-checked Mattermost bridge using `GetPost`, `GetPostThread`, `GetChannelMember` and `HasPermissionToChannel`.
 - [ ] Push and verify Go tests/vet pass (GREEN).
@@ -52,7 +52,7 @@
 
 **Files:** Create `cmd/twinmate-mcp/main.go`, `internal/twinmateclient/client.go`, `internal/twinmateclient/client_test.go`; Modify `go.mod`, `webapp/src/index.js`, `README.md`, `Makefile`, `.github/workflows/ci.yml` as needed.
 
-**Interfaces:** `twinmateclient.Client{BaseURL,Token,HTTP}` exposes `GetContext(ctx,input)`, `SendMessage(ctx,request)`, stdio MCP tool schemas `twinmate_get_context` and `twinmate_send_message` use this client. User settings display an issue/revoke token control.
+**Interfaces:** `twinmateclient.Client{BaseURL,Token,HTTP}` exposes `GetPost`, `ListPosts`, `SendMessage`; stdio MCP tools `twinmate_get_post`, `twinmate_list_posts`, and `twinmate_send_message` use this client. User settings display issue/revoke token controls and locale-aware labels.
 
 - [ ] Write client tests for correctly authenticated context/read and write requests, 4xx propagation and refused redirects.
 - [ ] Push test-only changes and verify they fail (RED).

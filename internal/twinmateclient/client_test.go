@@ -9,20 +9,33 @@ import (
 	"testing"
 )
 
-func TestClientGetsThreadUsingTwinmateCredential(t *testing.T) {
+func TestClientGetsOnePostUsingTwinmateCredential(t *testing.T) {
 	server:=httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request) {
-		if r.URL.Path!="/plugins/com.darksoftwarefactory.twinmate/api/agent/context" || r.Header.Get("X-Twinmate-Token")!="tmt_test" || r.URL.Query().Get("url")!="https://mm.example.com/team/pl/post-1" {
+		if r.URL.Path!="/plugins/com.darksoftwarefactory.twinmate/api/agent/posts/get" || r.Header.Get("X-Twinmate-Token")!="tmt_test" || r.URL.Query().Get("reference")!="https://mm.example.com/team/pl/post-1" {
 			t.Errorf("unexpected client request: %s %s",r.URL.String(),r.Header.Get("X-Twinmate-Token"))
 		}
-		_,_=w.Write([]byte(`{"channel_id":"dm-1","target_post_id":"post-1","posts":[{"id":"post-1","message":"deploy broken","user_id":"petya","create_at":123}]}`))
+		_,_=w.Write([]byte(`{"channel_id":"dm-1","id":"post-1","message":"deploy broken","user_id":"petya","create_at":123}`))
 	}))
 	defer server.Close()
 	client,err:=New(server.URL,"tmt_test",server.Client())
 	if err!=nil {t.Fatal(err)}
-	result,err:=client.GetContext(context.Background(),"https://mm.example.com/team/pl/post-1")
-	if err!=nil || result.TargetPostID!="post-1" || len(result.Posts)!=1 || result.Posts[0].Message!="deploy broken" {
-		t.Fatalf("unexpected context: %+v %v",result,err)
+	result,err:=client.GetPost(context.Background(),"https://mm.example.com/team/pl/post-1")
+	if err!=nil || result.ID!="post-1" || result.Message!="deploy broken" || result.ChannelID!="dm-1" {
+		t.Fatalf("unexpected post: %+v %v",result,err)
 	}
+}
+
+func TestClientListsMessagesBeforeOrAfterWithExplicitPagination(t *testing.T) {
+	server:=httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request) {
+		query:=r.URL.Query()
+		if r.URL.Path!="/plugins/com.darksoftwarefactory.twinmate/api/agent/posts/list" || query.Get("reference")!="post-1" || query.Get("direction")!="after" || query.Get("scope")!="thread" || query.Get("limit")!="7" {t.Errorf("wrong page request: %s",r.URL.String())}
+		_,_=w.Write([]byte(`{"channel_id":"dm-1","anchor_post_id":"post-1","posts":[{"id":"post-2","message":"found it"}],"has_more":true,"next_cursor":"post-2"}`))
+	}))
+	defer server.Close()
+	client,err:=New(server.URL,"tmt_test",server.Client())
+	if err!=nil {t.Fatal(err)}
+	page,err:=client.ListPosts(context.Background(),"post-1","after","thread",7)
+	if err!=nil || !page.HasMore || page.NextCursor!="post-2" || len(page.Posts)!=1 {t.Fatalf("unexpected page: %+v %v",page,err)}
 }
 
 func TestClientSendsAgentMessageWithoutMattermostPAT(t *testing.T) {
@@ -50,7 +63,7 @@ func TestClientDoesNotFollowRedirectWithAgentSecret(t *testing.T) {
 	defer server.Close()
 	client,err:=New(server.URL,"tmt_secret",server.Client())
 	if err!=nil {t.Fatal(err)}
-	_,err=client.GetContext(context.Background(),"post-1")
+	_,err=client.GetPost(context.Background(),"post-1")
 	if err==nil || !strings.Contains(err.Error(),"redirect") {t.Fatalf("redirect followed or not reported: %v",err)}
 }
 
@@ -59,17 +72,17 @@ func TestClientRejectsInsecureServerURL(t *testing.T) {
 	if _,err:=New("https://mm.example.com","",nil);err==nil {t.Fatal("missing token accepted")}
 }
 
-func TestClientAcceptsLargeButValidFiftyPostContext(t *testing.T) {
+func TestClientAcceptsLargeButValidPostPage(t *testing.T) {
 	posts:=make([]ContextPost,50)
-	// Encoding escapes '<' as \u003c, expanding a legitimate 15KB post to
-	// about 90KB on the wire. Fifty such posts are still valid context.
+	// Encoding escapes '<', expanding a legitimate 15KB post to about
+	// 90KB on the wire. Fifty such posts are still a valid paginated page.
 	for i:=range posts {posts[i]=ContextPost{ID:"post",Message:strings.Repeat("<",15000)}}
 	server:=httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
-		_ = json.NewEncoder(w).Encode(ContextResult{TargetPostID:"post",Posts:posts})
+		_ = json.NewEncoder(w).Encode(MessagePage{AnchorPostID:"post",Posts:posts})
 	}))
 	defer server.Close()
 	client,err:=New(server.URL,"tmt_test",server.Client())
 	if err!=nil {t.Fatal(err)}
-	result,err:=client.GetContext(context.Background(),"post")
-	if err!=nil || len(result.Posts)!=50 {t.Fatalf("valid context truncated: %d posts, %v",len(result.Posts),err)}
+	result,err:=client.ListPosts(context.Background(),"post","before","channel",50)
+	if err!=nil || len(result.Posts)!=50 {t.Fatalf("valid page truncated: %d posts, %v",len(result.Posts),err)}
 }
