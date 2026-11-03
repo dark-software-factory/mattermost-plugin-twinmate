@@ -39,6 +39,9 @@ func shouldProcessPost(post *model.Post, author *model.User) bool {
 	if strings.HasPrefix(post.Message, twinmateLabel) {
 		return false
 	}
+	if post.GetProp("from_webhook") == "true" {
+		return false
+	}
 	return author == nil || !author.IsBot
 }
 

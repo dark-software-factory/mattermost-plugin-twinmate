@@ -28,6 +28,10 @@ func TestOnlyHumanPostsAreForwarded(t *testing.T) {
 	if !shouldProcessPost(forgedProps, human) {
 		t.Fatal("client-supplied props are not trusted provenance")
 	}
+	webhook := &model.Post{Id: "webhook-1", UserId: "person", ChannelId: "dm", Message: "Webhook notification", Props: model.StringInterface{"from_webhook": "true"}}
+	if shouldProcessPost(webhook, human) {
+		t.Fatal("integration-originated webhook posts must not trigger personal agents")
+	}
 }
 
 func TestPostProvenanceRequiresMatchingServerRecord(t *testing.T) {
