@@ -71,5 +71,18 @@ func (p *Processor) Handle(ctx context.Context, message Message) error {
 	if strings.TrimSpace(reply) == "" {
 		return nil
 	}
+	// Turning a twin off (or rotating its endpoint/credentials) while the
+	// agent thinks must suppress an answer that has not yet been posted.
+	latest, err := p.Platform.Connection(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	if !latest.Enabled || latest != config {
+		return nil
+	}
+	enabled, err = p.Platform.DMEnabled(ctx, ownerID, message.ChannelID)
+	if err != nil || !enabled {
+		return err
+	}
 	return p.Platform.Publish(ctx, ownerID, message.ChannelID, message.RootID, reply, message.ID)
 }

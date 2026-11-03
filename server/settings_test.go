@@ -41,15 +41,39 @@ func TestSettingsNeverReturnPersonalAgentToken(t *testing.T) {
 	}
 }
 
-func TestSettingsPreserveTokenWhenUpdatingEndpoint(t *testing.T) {
+func TestSettingsClearTokenWhenChangingOrigin(t *testing.T) {
 	store := &memorySettings{values: map[string]core.Connection{"misha": {Endpoint: "https://old.example.com", Token: "existing"}}}
 	request := httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewBufferString(`{"endpoint":"https://new.example.com/events","enabled":true}`))
 	request.Header.Set("Mattermost-User-Id", "misha")
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	(&SettingsHandler{Store: store}).ServeHTTP(response, request)
-	if response.Code != http.StatusOK || store.values["misha"].Token != "existing" || !store.values["misha"].Enabled {
+	if response.Code != http.StatusOK || store.values["misha"].Token != "" || !store.values["misha"].Enabled {
 		t.Fatalf("unexpected save: %d, %+v", response.Code, store.values["misha"])
+	}
+}
+
+func TestSettingsPreserveTokenWithinSameOrigin(t *testing.T) {
+	store := &memorySettings{values: map[string]core.Connection{"misha": {Endpoint: "https://agent.example.com/old", Token: "existing"}}}
+	request := httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewBufferString(`{"endpoint":"https://agent.example.com/new","enabled":true}`))
+	request.Header.Set("Mattermost-User-Id", "misha")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	(&SettingsHandler{Store: store}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || store.values["misha"].Token != "existing" {
+		t.Fatalf("same-origin token lost: %d, %+v", response.Code, store.values["misha"])
+	}
+}
+
+func TestSettingsRemoveTokenExplicitly(t *testing.T) {
+	store := &memorySettings{values: map[string]core.Connection{"misha": {Endpoint: "https://agent.example.com", Token: "existing", Enabled: true}}}
+	request := httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewBufferString(`{"endpoint":"https://agent.example.com","enabled":true,"remove_token":true}`))
+	request.Header.Set("Mattermost-User-Id", "misha")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	(&SettingsHandler{Store: store}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || store.values["misha"].Token != "" {
+		t.Fatalf("token not removed: %d, %+v", response.Code, store.values["misha"])
 	}
 }
 

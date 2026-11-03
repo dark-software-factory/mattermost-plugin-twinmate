@@ -23,7 +23,7 @@ jobs:
       - name: Vet server
         run: go vet ./...
       - name: Install webapp dependencies
-        run: npm install --prefix webapp --no-audit --no-fund
+        run: npm ci --prefix webapp --no-audit --no-fund
       - name: Test webapp
         run: npm test --prefix webapp
       - name: Build Mattermost package

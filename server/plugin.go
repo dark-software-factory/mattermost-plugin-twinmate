@@ -18,6 +18,30 @@ import (
 
 const twinmateLabel = "🤖 **Twinmate · AI-двойник**\n\n"
 
+type storedPostProvenance struct {
+	OwnerID string `json:"owner_id"`
+	ChannelID string `json:"channel_id"`
+}
+
+func postProvenanceKey(id string) string { return "provenance:" + id }
+
+func postMatchesProvenance(post *model.Post, origin storedPostProvenance) bool {
+	return post != nil && post.UserId == origin.OwnerID && post.ChannelId == origin.ChannelID &&
+		strings.HasPrefix(post.Message, twinmateLabel)
+}
+
+// Post props are writable by clients, so they are never authorization or
+// provenance evidence. The stored text prefix is a loop-safety fallback.
+func shouldProcessPost(post *model.Post, author *model.User) bool {
+	if post == nil || post.UserId == "" || post.ChannelId == "" || strings.TrimSpace(post.Message) == "" || post.Type != "" {
+		return false
+	}
+	if strings.HasPrefix(post.Message, twinmateLabel) {
+		return false
+	}
+	return author == nil || !author.IsBot
+}
+
 type Plugin struct {
 	plugin.MattermostPlugin
 	allowPrivate atomic.Bool
@@ -45,11 +69,14 @@ func (p *Plugin) OnActivate() error {
 }
 
 func (p *Plugin) MessageHasBeenPosted(_ *plugin.Context, post *model.Post) {
-	if post == nil || post.UserId == "" || post.ChannelId == "" || post.Message == "" {
+	if !shouldProcessPost(post, nil) {
 		return
 	}
-	if post.GetProp("twinmate") != nil || strings.HasPrefix(post.Message, twinmateLabel) {
-		return
+	// Copy hook-owned data before launching a goroutine. Never retain the
+	// Mattermost SDK's Post pointer beyond this callback.
+	message := core.Message{
+		ID: post.Id, ChannelID: post.ChannelId, SenderID: post.UserId,
+		RootID: post.RootId, Text: post.Message,
 	}
 	// Mattermost's post hook must return quickly; never block chat delivery
 	// while waiting for a third-party model.
@@ -63,12 +90,17 @@ func (p *Plugin) MessageHasBeenPosted(_ *plugin.Context, post *model.Post) {
 		defer func() { <-p.workSlots }()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		author, appErr := p.API.GetUser(message.SenderID)
+		if appErr != nil {
+			p.API.LogWarn("Twinmate cannot verify sender", "user_id", message.SenderID, "error", appErr.Error())
+			return
+		}
+		if author == nil || author.IsBot {
+			return
+		}
 		processor := core.Processor{Platform: p, Agent: agent.NewClient(p.allowPrivate.Load())}
-		if err := processor.Handle(ctx, core.Message{
-			ID: post.Id, ChannelID: post.ChannelId, SenderID: post.UserId,
-			RootID: post.RootId, Text: post.Message,
-		}); err != nil {
-			p.API.LogError("Twinmate event failed", "post_id", post.Id, "error", err.Error())
+		if err := processor.Handle(ctx, message); err != nil {
+			p.API.LogError("Twinmate event failed", "post_id", message.ID, "error", err.Error())
 		}
 	}()
 }
@@ -158,7 +190,7 @@ func (p *Plugin) Publish(_ context.Context, ownerID, channelID, rootID, text, so
 	if len([]byte(text)) > 15000 {
 		return errors.New("agent reply exceeds the 15000-byte Twinmate limit")
 	}
-	_, appErr := p.API.CreatePost(&model.Post{
+	created, appErr := p.API.CreatePost(&model.Post{
 		UserId: ownerID, ChannelId: channelID, RootId: rootID,
 		Message: twinmateLabel + text,
 		Props: model.StringInterface{
@@ -170,13 +202,71 @@ func (p *Plugin) Publish(_ context.Context, ownerID, channelID, rootID, text, so
 	if appErr != nil {
 		return fmt.Errorf("publishing Twinmate response: %w", appErr)
 	}
+	if created == nil || created.Id == "" {
+		return errors.New("Mattermost returned no post ID after publishing")
+	}
+	origin, err := json.Marshal(storedPostProvenance{OwnerID: ownerID, ChannelID: channelID})
+	if err != nil {
+		return err
+	}
+	if appErr := p.API.KVSet(postProvenanceKey(created.Id), origin); appErr != nil {
+		return fmt.Errorf("recording Twinmate post provenance: %w", appErr)
+	}
 	return nil
 }
 
+func (p *Plugin) verifiedPostForViewer(postID, viewerID string) (bool, error) {
+	if len(postID) == 0 || len(postID) > 64 || viewerID == "" {
+		return false, nil
+	}
+	data, appErr := p.API.KVGet(postProvenanceKey(postID))
+	if appErr != nil {
+		return false, appErr
+	}
+	if len(data) == 0 {
+		return false, nil
+	}
+	var origin storedPostProvenance
+	if err := json.Unmarshal(data, &origin); err != nil {
+		return false, err
+	}
+	if origin.OwnerID == "" || origin.ChannelID == "" {
+		return false, nil
+	}
+	if _, appErr := p.API.GetChannelMember(origin.ChannelID, viewerID); appErr != nil {
+		return false, nil
+	}
+	post, appErr := p.API.GetPost(postID)
+	if appErr != nil {
+		return false, nil
+	}
+	return postMatchesProvenance(post, origin), nil
+}
+
 func (p *Plugin) ServeHTTP(_ *plugin.Context, w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/api/config" {
+	if r.URL.Path == "/api/config" {
+		(&SettingsHandler{Store: p, AllowPrivate: p.allowPrivate.Load()}).ServeHTTP(w, r)
+		return
+	}
+	if r.URL.Path != "/api/provenance" {
 		http.NotFound(w, r)
 		return
 	}
-	(&SettingsHandler{Store: p, AllowPrivate: p.allowPrivate.Load()}).ServeHTTP(w, r)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	viewer := r.Header.Get("Mattermost-User-Id")
+	if viewer == "" {
+		http.Error(w, `{"error":"authentication required"}`, http.StatusUnauthorized)
+		return
+	}
+	verified, err := p.verifiedPostForViewer(r.URL.Query().Get("post_id"), viewer)
+	if err != nil {
+		http.Error(w, `{"error":"cannot check provenance"}`, http.StatusInternalServerError)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(struct { Verified bool `json:"verified"` }{verified})
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/dark-software-factory/mattermost-plugin-twinmate/server/agent"
@@ -17,6 +18,18 @@ type SettingsStore interface {
 type SettingsHandler struct {
 	Store        SettingsStore
 	AllowPrivate bool
+}
+
+// Tokens are scoped to the original destination, not to arbitrary URLs a
+// settings update might redirect them to. A path change on the same origin
+// does not require re-entering the token.
+func sameEndpointOrigin(oldEndpoint, newEndpoint string) bool {
+	oldURL, oldErr := url.Parse(oldEndpoint)
+	newURL, newErr := url.Parse(newEndpoint)
+	if oldErr != nil || newErr != nil || oldURL.Host == "" || newURL.Host == "" {
+		return false
+	}
+	return strings.EqualFold(oldURL.Scheme, newURL.Scheme) && strings.EqualFold(oldURL.Hostname(), newURL.Hostname()) && oldURL.Port() == newURL.Port()
 }
 
 func (h *SettingsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -53,6 +66,7 @@ func (h *SettingsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Endpoint string `json:"endpoint"`
 		Token string `json:"token"`
 		Enabled bool `json:"enabled"`
+		RemoveToken bool `json:"remove_token"`
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 	dec.DisallowUnknownFields()
@@ -68,6 +82,13 @@ func (h *SettingsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else if incoming.Enabled {
 		http.Error(w, `{"error":"endpoint required"}`, http.StatusBadRequest)
 		return
+	}
+	if incoming.RemoveToken && incoming.Token != "" {
+		http.Error(w, `{"error":"cannot replace and remove token together"}`, http.StatusBadRequest)
+		return
+	}
+	if incoming.RemoveToken || (incoming.Token == "" && !sameEndpointOrigin(current.Endpoint, incoming.Endpoint)) {
+		current.Token = ""
 	}
 	current.Endpoint = incoming.Endpoint
 	current.Enabled = incoming.Enabled

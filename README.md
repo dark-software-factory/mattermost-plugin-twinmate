@@ -8,8 +8,8 @@ Personal digital twins for [Mattermost](https://mattermost.com). Each person con
 
 - Personal HTTPS agent endpoint and optional bearer token configured in **Main menu → Twinmate · My digital twin**.
 - Explicit per-DM opt-in: `/twinmate on`, `/twinmate off`, `/twinmate status` (also available in native mobile apps).
-- Only the receiving participant's enabled agent is called after a human sends a new DM message. No group channels, background polling, or DM history extraction.
-- Agent responses appear in the **same** DM, attributed to the owner, with persisted `post.props.twinmate` metadata and a mobile-visible `🤖 Twinmate · AI-двойник` prefix. Web/desktop has an additional `AI-двойник` header badge when a header is shown.
+- Only the receiving participant's enabled agent is called after a human sends a new DM message. Posts from Mattermost bot users and system integrations are ignored. No group channels, background polling, or DM history extraction.
+- Agent responses appear in the **same** DM, attributed to the owner, with persisted `post.props.twinmate` metadata and a mobile-visible `🤖 Twinmate · AI-двойник` prefix. Web/desktop has an additional `AI-двойник` header badge when a header is shown; this badge is verified against server-owned provenance, not trusted from client-supplied post props.
 - Agents get a scoped event; they do **not** receive a Mattermost personal access token.
 
 ## Requirements
@@ -22,7 +22,7 @@ Personal digital twins for [Mattermost](https://mattermost.com). Each person con
 
 ```bash
 go mod tidy
-npm install --prefix webapp
+npm ci --prefix webapp
 make test
 make bundle
 ```
@@ -33,6 +33,8 @@ The resulting `dist/com.darksoftwarefactory.twinmate-0.1.0.tar.gz` can be upload
 2. Enter your agent's HTTPS endpoint and optional bearer token, enable the connection, and save.
 3. Open an existing personal DM and type `/twinmate on` to allow that particular conversation to be processed. Use `/twinmate off` to pause.
 4. When the other participant writes a message, Twinmate sends the event to your endpoint. The agent can respond or decline.
+
+When changing the agent's hostname, the previously saved bearer token is cleared unless you explicitly enter a replacement. When modifying only the path on the same host, the token is preserved. The settings form also lets you remove the current token. Disabling a twin prevents a pending agent reply from being published once the external call finishes, but it cannot retract an already-transmitted event.
 
 ## Agent API
 
@@ -62,6 +64,7 @@ Return `{"reply":""}` when the agent chooses not to speak. Calls time out after 
 - All connections and per-DM permissions start disabled. **Enabling a twin means the external agent can receive new messages from that DM.** Communicate this to the other participant and obtain any consent your organization requires.
 - Private, loopback and link-local destinations are blocked by default, including DNS-resolved IPs at connection time; an administrator may enable private-network endpoints in plugin settings. This carries server-side request forgery risk and is for trusted corporate networks only.
 - Connection tokens are stored in the Mattermost plugin KV store. They are withheld from the browser's GET endpoint, but **they are not encrypted independently by this plugin**. Use a dedicated rotatable token and protect database backups.
+- AI post badges are shown only after checking a Mattermost-authenticated, DM-member-restricted provenance endpoint. A user can type a similar emoji label manually, but cannot obtain a verified Twinmate badge through post props alone.
 - The plugin currently publishes posts with the owner's Mattermost user ID to preserve two-person DM membership. This is **not a separate bot user**. The AI label and custom post props disclose the origin; native mobile clients display the in-body label, not a custom native badge.
 - Delivery is best-effort in memory with a 32-worker limit: a restart, an HTTP timeout or overload can lose an event. There is no outbox, retry queue or cross-node deduplication yet.
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"net/http"
 	"net/url"
 	"strings"
@@ -15,6 +16,27 @@ import (
 )
 
 const maxReplyBytes = 64 * 1024
+
+// IsGlobalUnicast alone is not a public-internet test: shared/benchmarking
+// networks and documentation ranges can still route inside organizations.
+// Be conservative about special-use networks when admin opt-in is disabled.
+var specialUseNetworks = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.88.99.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("100::/64"),
+	netip.MustParsePrefix("2001::/23"),
+	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("2002::/16"),
+}
 
 // Event is the deliberately small contract shared with independently hosted agents.
 // No Mattermost credentials or conversation history are included.
@@ -50,7 +72,20 @@ func ValidateEndpoint(raw string, allowPrivate bool) error {
 }
 
 func allowedIP(ip net.IP) bool {
-	return ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast()
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return false
+	}
+	address, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false
+	}
+	address = address.Unmap()
+	for _, block := range specialUseNetworks {
+		if block.Contains(address) {
+			return false
+		}
+	}
+	return true
 }
 
 func NewClient(allowPrivate bool) *Client {

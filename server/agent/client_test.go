@@ -53,6 +53,8 @@ func TestClientRejectsUnsafeEndpoints(t *testing.T) {
 	for _, endpoint := range []string{
 		"http://example.com/agent", "https://localhost/agent", "https://127.0.0.1/agent",
 		"https://169.254.169.254/latest/meta-data", "https://u:p@example.com/agent", "https://example.com/#fragment",
+		"https://100.64.0.1/agent", "https://198.18.0.1/agent", "https://192.0.2.1/agent",
+		"https://198.51.100.1/agent", "https://203.0.113.1/agent", "https://[2001:db8::1]/agent",
 	} {
 		t.Run(endpoint, func(t *testing.T) {
 			if err := ValidateEndpoint(endpoint, false); err == nil {
@@ -62,6 +64,11 @@ func TestClientRejectsUnsafeEndpoints(t *testing.T) {
 	}
 	if err := ValidateEndpoint("https://agents.company.example/events", false); err != nil {
 		t.Fatalf("valid HTTPS endpoint rejected: %v", err)
+	}
+	for _, endpoint := range []string{"https://8.8.8.8/events", "https://[2606:4700:4700::1111]/events"} {
+		if err := ValidateEndpoint(endpoint, false); err != nil {
+			t.Fatalf("public endpoint %s rejected: %v", endpoint, err)
+		}
 	}
 }
 

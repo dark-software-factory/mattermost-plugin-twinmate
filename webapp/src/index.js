@@ -3,6 +3,11 @@ import React from 'react';
 const {isTwinPost} = require('./badge');
 const pluginID = 'com.darksoftwarefactory.twinmate';
 const apiURL = `/plugins/${pluginID}/api/config`;
+const provenanceURL = `/plugins/${pluginID}/api/provenance`;
+
+function endpointOrigin(value) {
+    try { return new URL(value).origin; } catch { return ''; }
+}
 
 const styles = {
     backdrop: {position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center'},
@@ -19,6 +24,8 @@ function TwinmateSettingsRoot() {
     const [token, setToken] = React.useState('');
     const [enabled, setEnabled] = React.useState(false);
     const [hasToken, setHasToken] = React.useState(false);
+    const [savedEndpoint, setSavedEndpoint] = React.useState('');
+    const [removeToken, setRemoveToken] = React.useState(false);
     const [status, setStatus] = React.useState('');
 
     React.useEffect(() => {
@@ -34,7 +41,7 @@ function TwinmateSettingsRoot() {
             if (!response.ok) { throw new Error('Unable to load settings'); }
             return response.json();
         }).then((data) => {
-            if (alive) { setEndpoint(data.endpoint || ''); setToken(''); setEnabled(Boolean(data.enabled)); setHasToken(Boolean(data.has_token)); }
+            if (alive) { setEndpoint(data.endpoint || ''); setSavedEndpoint(data.endpoint || ''); setToken(''); setRemoveToken(false); setEnabled(Boolean(data.enabled)); setHasToken(Boolean(data.has_token)); }
         }).catch((error) => { if (alive) { setStatus(error.message); } });
         return () => { alive = false; };
     }, [open]);
@@ -43,9 +50,11 @@ function TwinmateSettingsRoot() {
         event.preventDefault();
         setStatus('Saving…');
         try {
-            const response = await fetch(apiURL, {method: 'PUT', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({endpoint, token, enabled})});
+            const response = await fetch(apiURL, {method: 'PUT', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({endpoint, token, enabled, remove_token: removeToken})});
             if (!response.ok) { throw new Error('Unable to save settings. Check the HTTPS endpoint.'); }
-            setHasToken(hasToken || Boolean(token));
+            setHasToken(!removeToken && (Boolean(token) || (hasToken && endpointOrigin(savedEndpoint) === endpointOrigin(endpoint))));
+            setSavedEndpoint(endpoint);
+            setRemoveToken(false);
             setToken('');
             setStatus('Saved. In any DM use /twinmate on to activate your twin there.');
         } catch (error) { setStatus(error.message); }
@@ -62,7 +71,10 @@ function TwinmateSettingsRoot() {
                 React.createElement('label', {style: styles.label, htmlFor: 'twinmate-endpoint'}, 'Agent HTTPS endpoint'),
                 React.createElement('input', {id: 'twinmate-endpoint', style: styles.field, type: 'url', placeholder: 'https://agent.example.com/events', value: endpoint, onChange: (e) => setEndpoint(e.target.value)}),
                 React.createElement('label', {style: styles.label, htmlFor: 'twinmate-token'}, 'Agent bearer token'),
-                React.createElement('input', {id: 'twinmate-token', style: styles.field, type: 'password', autoComplete: 'new-password', placeholder: hasToken ? 'Token saved — leave blank to keep it' : 'Optional', value: token, onChange: (e) => setToken(e.target.value)}),
+                React.createElement('input', {id: 'twinmate-token', style: styles.field, type: 'password', autoComplete: 'new-password', disabled: removeToken, placeholder: hasToken ? 'Leave blank to keep it on this host' : 'Optional', value: token, onChange: (e) => setToken(e.target.value)}),
+                hasToken && React.createElement('label', {style: {...styles.label, fontWeight: 400}},
+                    React.createElement('input', {type: 'checkbox', checked: removeToken, onChange: (e) => { setRemoveToken(e.target.checked); setToken(''); }}), ' Remove the saved token'),
+                hasToken && savedEndpoint && endpointOrigin(savedEndpoint) !== endpointOrigin(endpoint) && React.createElement('p', {style: styles.secondary}, 'Changing the agent host clears the previously saved token. Enter a new token if the new endpoint needs one.'),
                 React.createElement('label', {style: {...styles.label, fontWeight: 400}},
                     React.createElement('input', {type: 'checkbox', checked: enabled, onChange: (e) => setEnabled(e.target.checked)}), ' Enable my personal Twinmate connection'),
                 React.createElement('p', {style: styles.secondary}, 'To enable in one conversation, send /twinmate on inside that DM. Use /twinmate off to stop.'),
@@ -71,7 +83,25 @@ function TwinmateSettingsRoot() {
 }
 
 function TwinmateBadge({post}) {
-    if (!isTwinPost(post)) { return null; }
+    const [verified, setVerified] = React.useState(false);
+    React.useEffect(() => {
+        if (!isTwinPost(post) || !post.id) { setVerified(false); return; }
+        let alive = true;
+        let retry;
+        const check = async (attempt) => {
+            try {
+                const response = await fetch(`${provenanceURL}?post_id=${encodeURIComponent(post.id)}`, {credentials: 'same-origin'});
+                if (!response.ok) { throw new Error('Provenance unavailable'); }
+                const result = await response.json();
+                if (alive && result.verified) { setVerified(true); return; }
+            } catch { /* Body label remains visible if the badge cannot be verified. */ }
+            if (alive && attempt === 0) { retry = setTimeout(() => check(1), 650); }
+        };
+        setVerified(false);
+        check(0);
+        return () => { alive = false; clearTimeout(retry); };
+    }, [post.id, Boolean(post.props?.twinmate?.generated)]);
+    if (!verified || !isTwinPost(post)) { return null; }
     return React.createElement('span', {title: 'Sent by a personal AI twin, not typed by the person', style: {display: 'inline-flex', alignItems: 'center', border: '1px solid #8b5cf6', color: '#8b5cf6', fontWeight: 600, fontSize: 11, padding: '1px 6px', borderRadius: 9, marginLeft: 5}}, '✦ AI-двойник');
 }
 

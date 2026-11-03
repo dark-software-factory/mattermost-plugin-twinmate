@@ -29,6 +29,7 @@ type fakeAgent struct {
 	events []agent.Event
 	reply string
 	err error
+	onCall func()
 }
 
 func (f *fakeAgent) Call(_ context.Context, endpoint, token string, event agent.Event) (string, error) {
@@ -36,6 +37,7 @@ func (f *fakeAgent) Call(_ context.Context, endpoint, token string, event agent.
 		return "", errors.New("wrong endpoint or secret")
 	}
 	f.events = append(f.events, event)
+	if f.onCall != nil { f.onCall() }
 	return f.reply, f.err
 }
 
@@ -97,5 +99,27 @@ func TestEmptyAgentReplyIsNotPublished(t *testing.T) {
 	}
 	if len(platform.published) != 0 {
 		t.Fatal("empty reply must not produce a Mattermost post")
+	}
+}
+
+func TestOffDuringAgentCallSuppressesPendingReply(t *testing.T) {
+	platform := &fakePlatform{recipient: "misha", enabled: true, config: Connection{Enabled: true, Endpoint: "https://agent.example.com/events", Token: "secret"}}
+	remote := &fakeAgent{reply: "late answer", onCall: func() { platform.enabled = false }}
+	if err := (&Processor{Platform: platform, Agent: remote}).Handle(context.Background(), Message{ID: "post-1", ChannelID: "dm-1", SenderID: "petya", Text: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(remote.events) != 1 || len(platform.published) != 0 {
+		t.Fatalf("reply published after DM off: %+v", platform.published)
+	}
+}
+
+func TestDisablingConnectionDuringAgentCallSuppressesReply(t *testing.T) {
+	platform := &fakePlatform{recipient: "misha", enabled: true, config: Connection{Enabled: true, Endpoint: "https://agent.example.com/events", Token: "secret"}}
+	remote := &fakeAgent{reply: "late answer", onCall: func() { platform.config.Enabled = false }}
+	if err := (&Processor{Platform: platform, Agent: remote}).Handle(context.Background(), Message{ID: "post-1", ChannelID: "dm-1", SenderID: "petya", Text: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(remote.events) != 1 || len(platform.published) != 0 {
+		t.Fatalf("reply published after connection off: %+v", platform.published)
 	}
 }
