@@ -27,9 +27,9 @@ test('real Chromium renders verified AI badge in English and Russian, and opens 
         await page.getByRole('textbox', {name: 'Password'}).fill(server.users.misha.password);
         await page.getByRole('button', {name: 'Log in', exact: true}).click();
         await expect(page.getByText('AI-assisted investigation result')).toBeVisible({timeout: 30_000});
-        await expect(page.getByText('AI twin', {exact: true})).toBeVisible({timeout: 20_000});
+        await expect(page.getByTitle('Sent by a personal AI twin, not typed by the person')).toBeVisible({timeout: 20_000});
         // Neither ordinary human posts nor client-forged props earn the badge.
-        expect(await page.getByText('AI twin', {exact: true}).count()).toBe(1);
+        expect(await page.getByTitle('Sent by a personal AI twin, not typed by the person').count()).toBe(1);
 
         await page.evaluate(() => window.dispatchEvent(new Event('twinmate:open')));
         await expect(page.getByRole('dialog', {name: 'Twinmate settings'})).toBeVisible();
@@ -37,7 +37,7 @@ test('real Chromium renders verified AI badge in English and Russian, and opens 
 
         await requireOK(await misha.put(`/api/v4/users/${misha.id}/patch`, {data: {locale: 'ru'}}), 'set Russian user locale');
         await page.reload();
-        await expect(page.getByText('ИИ-двойник', {exact: true})).toBeVisible({timeout: 20_000});
+        await expect(page.getByTitle('Сообщение написал персональный ИИ-двойник, а не человек')).toBeVisible({timeout: 20_000});
         await page.evaluate(() => window.dispatchEvent(new Event('twinmate:open')));
         await expect(page.getByRole('dialog', {name: 'Настройки Twinmate'})).toBeVisible();
     } finally {
