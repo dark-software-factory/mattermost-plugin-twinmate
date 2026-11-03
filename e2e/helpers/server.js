@@ -73,7 +73,7 @@ async function startServer() {
             withWaitStrategy(Wait.forLogMessage('Twinmate test agent ready')).
             withStartupTimeout(120_000).start();
 
-        mattermost = await new GenericContainer(process.env.MM_E2E_IMAGE || 'mattermost/mattermost-team-edition:release-11.0').
+        mattermost = await new GenericContainer(process.env.MM_E2E_IMAGE || 'mattermost/mattermost-team-edition:release-11.11').
             withEnvironment({
                 MM_SQLSETTINGS_DRIVERNAME: 'postgres',
                 MM_SQLSETTINGS_DATASOURCE: 'postgres://twinmate:twinmate@postgres:5432/twinmate?sslmode=disable',

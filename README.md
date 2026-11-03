@@ -11,7 +11,7 @@ Personal digital twins for [Mattermost](https://mattermost.com). A developer's l
 - Personal HTTPS agent endpoint and optional bearer token configured in **Main menu → Twinmate · My digital twin**.
 - Explicit per-DM opt-in: `/twinmate on`, `/twinmate off`, `/twinmate status` (also available in native mobile apps).
 - Only the receiving participant's enabled agent is called after a human sends a new DM message. Posts from Mattermost bot users and system integrations are ignored. No group channels, background polling, or DM history extraction.
-- Agent responses appear in the **same** DM, attributed to the owner, with persisted `post.props.twinmate` metadata and a mobile-visible, locale-neutral `🤖 Twinmate · AI-generated` prefix. Web/desktop additionally shows a server-verified localized badge (e.g. `AI twin` in English, `ИИ-двойник` in Russian, `KI-Zwilling` in German). The badge is verified against server-owned provenance, not trusted from client-supplied post props. The settings UI supports the main Mattermost locales with English fallback.
+- Agent responses appear in the **same** DM, attributed to the owner, with persisted `post.props.twinmate` metadata and a mobile-visible, locale-neutral `🤖 Twinmate · AI-generated` prefix. Mattermost **11.9+** web/desktop additionally shows a server-verified localized badge (e.g. `AI twin` in English, `ИИ-двойник` in Russian, `KI-Zwilling` in German). On Mattermost 11.0–11.8, the in-body marker remains visible. The badge is verified against server-owned provenance, not trusted from client-supplied post props. The settings UI supports the main Mattermost locales with English fallback.
 - Agents get a scoped event; they do **not** receive a Mattermost personal access token.
 
 ## Requirements
@@ -145,12 +145,12 @@ The [original DM design](docs/superpowers/specs/2026-11-03-twinmate-mvp-design.m
 
 ### Full integration tests
 
-The `e2e/` Playwright suite follows the disposable Mattermost + PostgreSQL Testcontainers pattern used in the [Mattermost Docs plugin](https://github.com/mattermost/mattermost-plugin-docs). It builds and uploads the **actual** plugin archive to a newly created Mattermost 11 server, creates four real users, and runs seven browser/API/MCP/automatic-DM scenarios:
+The `e2e/` Playwright suite follows the disposable Mattermost + PostgreSQL Testcontainers pattern used in the [Mattermost Docs plugin](https://github.com/mattermost/mattermost-plugin-docs). It builds and uploads the **actual** plugin archive to a newly created Mattermost server, creates four real users, and runs seven browser/API/MCP/automatic-DM scenarios. CI runs the suite against **11.0 and 11.11** to cover the oldest supported version and the newer post-header extension API:
 
 - Startup and plugin activation through Mattermost's official API.
 - Per-user key issuance, rotation/revocation, private-channel isolation, real permission checks, chronological paging, thread scope, AI post ownership and server-verified provenance.
 - A compiled Go stdio MCP process calling the real server through a disposable, certificate-validated HTTPS proxy.
-- Chromium rendering of the AI badge in English and Russian, plus the settings dialog.
+- Chromium rendering of the mobile-safe AI label on both versions, the server-verified AI badge on 11.11 in English and Russian, plus the localized settings dialog on both.
 - Actual automatic-DM delivery over HTTPS to a disposable test agent container, validating opt-in/opt-out, event authentication and generated reply provenance.
 
 With a local Docker daemon, Go, Node.js 24, Chromium dependencies and OpenSSL:

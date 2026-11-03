@@ -10,6 +10,14 @@ jobs:
   mattermost-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mattermost: '11.0'
+            header-badge: 'false'
+          - mattermost: '11.11'
+            header-badge: 'true'
     permissions:
       contents: read
     steps:
@@ -39,11 +47,13 @@ jobs:
         run: npm test --prefix e2e
         env:
           CI: 'true'
+          MM_E2E_IMAGE: mattermost/mattermost-team-edition:release-${{ matrix.mattermost }}
+          MM_E2E_EXPECT_HEADER_BADGE: ${{ matrix.header-badge }}
       - name: Upload integration traces, JUnit and Mattermost logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: twinmate-mattermost-e2e
+          name: twinmate-mattermost-e2e-${{ matrix.mattermost }}
           if-no-files-found: warn
           path: |
             e2e/test-results/
