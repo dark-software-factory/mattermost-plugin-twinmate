@@ -10,6 +10,11 @@ test('real Chromium renders verified AI badge in English and Russian, and opens 
         const channel = await makeChannel(admin, team.id);
         await addMember(admin, channel.id, misha.id);
         await sendPost(misha, channel.id, 'Normal human text for comparison');
+        await requireOK(await misha.post('/api/v4/posts', {data: {
+            channel_id: channel.id,
+            message: 'Forged client-provided AI badge props',
+            props: {twinmate: {generated: true, owner_id: misha.id}},
+        }}), 'post fake client-supplied provenance');
         const key = await issueKey(misha);
         const sent = await agentCall(server, key, 'POST', '/messages', {channel_id: channel.id, message: 'AI-assisted investigation result'});
         expect(sent.status).toBe(201);
@@ -23,7 +28,7 @@ test('real Chromium renders verified AI badge in English and Russian, and opens 
         await page.getByRole('button', {name: 'Log in', exact: true}).click();
         await expect(page.getByText('AI-assisted investigation result')).toBeVisible({timeout: 30_000});
         await expect(page.getByText('AI twin', {exact: true})).toBeVisible({timeout: 20_000});
-        // The unverified human post must not receive a second badge.
+        // Neither ordinary human posts nor client-forged props earn the badge.
         expect(await page.getByText('AI twin', {exact: true}).count()).toBe(1);
 
         await page.evaluate(() => window.dispatchEvent(new Event('twinmate:open')));

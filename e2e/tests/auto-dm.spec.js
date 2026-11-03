@@ -3,13 +3,8 @@ const {getSession, requireOK, pluginBase} = require('../helpers/mm-api');
 const {sendPost} = require('../helpers/scenarios');
 
 test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified reply and stops after opt-out', async ({server, request}) => {
-    const [admin, misha, petya] = await Promise.all(['admin', 'misha', 'petya'].map((name) => getSession(server, name)));
+    const [misha, petya] = await Promise.all(['misha', 'petya'].map((name) => getSession(server, name)));
     try {
-        const configured = await admin.put('/api/v4/plugins/com.darksoftwarefactory.twinmate/config', {
-            data: {AllowPrivateEndpoints: true},
-        });
-        expect(configured.status(), await configured.text()).toBe(200);
-
         const dm = await requireOK(await misha.post('/api/v4/channels/direct', {data: [misha.id, petya.id]}), 'create direct message');
         const endpoint = 'https://twinmate-agent:8443/events';
         const saved = await misha.put(`${pluginBase}/api/config`, {
@@ -55,6 +50,6 @@ test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified re
         const after = await requireOK(await request.get(`${server.agentStatusURL}/`), 'inspect after opt-out');
         expect(after.events).toHaveLength(before.events.length + 1);
     } finally {
-        await Promise.all([admin.dispose(), misha.dispose(), petya.dispose()]);
+        await Promise.all([misha.dispose(), petya.dispose()]);
     }
 });
