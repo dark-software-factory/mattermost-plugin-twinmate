@@ -135,6 +135,7 @@ Return `{"reply":""}` when the agent chooses not to speak. Calls time out after 
 - No durable auto-reply queue, attachment downloads or automatic group-chat replies. The agent-initiated API can post to authorized channels and fetch channel/thread pages around a reference post.
 - No mutual participant-consent flow or external data retention governance yet.
 - No custom mobile client code. Native mobile clients cannot load webapp plugin React components.
+- Mattermost hides post headers for consecutive posts by the same author, so its `registerPostHeaderComponent` badge is also suppressed on those posts. The in-body `🤖 Twinmate · AI-generated` marker remains visible in all clients, including those grouped posts and native mobile clients.
 - Thread-scoped paging currently uses Mattermost's unpaginated plugin `GetPostThread` API internally; extremely long threads can be expensive to read, despite the 50-post response cap. This needs a bounded server-side pagination strategy before production rollout.
 - The agent-initiated API deliberately has no global search, attachment downloads, per-token fine-grained scopes or multiple simultaneous keys yet. Each read page is capped at 50 posts, but the agent may request more pages using the returned cursor.
 

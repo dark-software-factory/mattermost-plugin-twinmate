@@ -35,6 +35,11 @@ test('real owner key can read, page and publish marked replies while outsiders a
         expect(page.body.posts).toHaveLength(1);
         expect(page.body.has_more).toBe(true);
         expect(page.body.next_cursor).toBe(page.body.posts[0].id);
+        const continued = await agentCall(server, ownerKey, 'GET', `/posts/list?reference=${page.body.next_cursor}&direction=before&limit=1`);
+        expect(continued.status).toBe(200);
+        expect(continued.body.posts).toHaveLength(1);
+        expect(continued.body.posts[0].id).toBe(first.id);
+        expect(continued.body.posts[0].id).not.toBe(page.body.posts[0].id);
 
         const forbidden = await agentCall(server, outsiderKey, 'GET', `/posts/get?reference=${middle.id}`);
         expect(forbidden.status).toBe(403);

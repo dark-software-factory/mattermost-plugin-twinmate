@@ -1,9 +1,9 @@
 const {test, expect} = require('./fixtures');
 const {getSession, requireOK, pluginBase} = require('../helpers/mm-api');
-const {sendPost, getTeam} = require('../helpers/scenarios');
+const {sendPost, getTeam, issueKey, agentCall} = require('../helpers/scenarios');
 
 test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified reply and stops after opt-out', async ({server, request}) => {
-    const [misha, petya] = await Promise.all(['misha', 'petya'].map((name) => getSession(server, name)));
+    const [misha, petya, outsider] = await Promise.all(['misha', 'petya', 'outsider'].map((name) => getSession(server, name)));
     try {
         const team = await getTeam(misha);
         const dm = await requireOK(await misha.post('/api/v4/channels/direct', {data: [misha.id, petya.id]}), 'create direct message');
@@ -14,12 +14,23 @@ test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified re
         expect(saved.status(), await saved.text()).toBe(200);
 
         const before = await requireOK(await request.get(`${server.agentStatusURL}/`), 'check fake-agent initial events');
+        await sendPost(petya, dm.id, 'Private content before opt-in');
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        const stillDisabled = await requireOK(await request.get(`${server.agentStatusURL}/`), 'check initial DM opt-out');
+        expect(stillDisabled.events).toHaveLength(before.events.length);
         const optIn = await misha.post('/api/v4/commands/execute', {
             data: {team_id: team.id, channel_id: dm.id, command: '/twinmate on'},
         });
         expect(optIn.status(), await optIn.text()).toBe(200);
 
         const trigger = await sendPost(petya, dm.id, 'Please investigate the broken migration');
+        const outsiderKey = await issueKey(outsider);
+        for (const resource of [`/posts/get?reference=${trigger.id}`, `/posts/list?reference=${trigger.id}&direction=before&limit=10`]) {
+            const attempted = await agentCall(server, outsiderKey, 'GET', resource);
+            expect(attempted.status).toBe(403);
+            expect(JSON.stringify(attempted.body)).not.toContain(trigger.message);
+            expect(JSON.stringify(attempted.body)).not.toContain('Private content before opt-in');
+        }
         await expect.poll(async () => {
             const payload = await requireOK(await request.get(`${server.agentStatusURL}/`), 'poll fake agent');
             return payload.events.length;
@@ -47,10 +58,10 @@ test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified re
         expect(optOut.status(), await optOut.text()).toBe(200);
         await sendPost(petya, dm.id, 'Do not forward this post to my agent');
         // The processor is asynchronous; allow a short observation window.
-        await new Promise((resolve) => setTimeout(resolve, 1_200));
+        await new Promise((resolve) => setTimeout(resolve, 2_500));
         const after = await requireOK(await request.get(`${server.agentStatusURL}/`), 'inspect after opt-out');
         expect(after.events).toHaveLength(before.events.length + 1);
     } finally {
-        await Promise.all([misha.dispose(), petya.dispose()]);
+        await Promise.all([misha.dispose(), petya.dispose(), outsider.dispose()]);
     }
 });

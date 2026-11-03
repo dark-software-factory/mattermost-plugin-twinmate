@@ -7,8 +7,11 @@ test:
 	go test ./...
 	cd webapp && npm test
 
-test-e2e: bundle build-mcp
+test-e2e:
+	npm ci --prefix webapp
+	$(MAKE) bundle build-mcp
 	npm ci --prefix e2e
+	cd e2e && npx playwright install chromium
 	npm test --prefix e2e
 
 build-server:
