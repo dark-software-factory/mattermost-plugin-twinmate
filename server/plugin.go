@@ -189,9 +189,14 @@ func (p *Plugin) setDM(userID, channelID string, enabled bool) error {
 }
 
 func (p *Plugin) Publish(_ context.Context, ownerID, channelID, rootID, text, sourceID string) error {
+	_, err := p.createTwinPost(ownerID, channelID, rootID, text, sourceID)
+	return err
+}
+
+func (p *Plugin) createTwinPost(ownerID, channelID, rootID, text, sourceID string) (string,error) {
 	// Leave room for the label and stay under Mattermost's post size limit.
 	if len([]byte(text)) > 15000 {
-		return errors.New("agent reply exceeds the 15000-byte Twinmate limit")
+		return "",errors.New("agent reply exceeds the 15000-byte Twinmate limit")
 	}
 	created, appErr := p.API.CreatePost(&model.Post{
 		UserId: ownerID, ChannelId: channelID, RootId: rootID,
@@ -203,19 +208,19 @@ func (p *Plugin) Publish(_ context.Context, ownerID, channelID, rootID, text, so
 		},
 	})
 	if appErr != nil {
-		return fmt.Errorf("publishing Twinmate response: %w", appErr)
+		return "",fmt.Errorf("publishing Twinmate response: %w", appErr)
 	}
 	if created == nil || created.Id == "" {
-		return errors.New("Mattermost returned no post ID after publishing")
+		return "",errors.New("Mattermost returned no post ID after publishing")
 	}
 	origin, err := json.Marshal(storedPostProvenance{OwnerID: ownerID, ChannelID: channelID})
 	if err != nil {
-		return err
+		return "",err
 	}
 	if appErr := p.API.KVSet(postProvenanceKey(created.Id), origin); appErr != nil {
-		return fmt.Errorf("recording Twinmate post provenance: %w", appErr)
+		return "",fmt.Errorf("recording Twinmate post provenance: %w", appErr)
 	}
-	return nil
+	return created.Id,nil
 }
 
 func (p *Plugin) verifiedPostForViewer(postID, viewerID string) (bool, error) {
@@ -247,6 +252,20 @@ func (p *Plugin) verifiedPostForViewer(postID, viewerID string) (bool, error) {
 }
 
 func (p *Plugin) ServeHTTP(_ *plugin.Context, w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api/agent/context" || r.URL.Path == "/api/agent/messages" {
+		siteURL := ""
+		if config := p.API.GetConfig(); config != nil && config.ServiceSettings.SiteURL != nil {
+			siteURL = *config.ServiceSettings.SiteURL
+		}
+		(AgentHandler{
+			Tokens: &TokenManager{Store: pluginAccessTokenStore{Plugin: p}},
+			Bridge: MattermostBridge{API: p.API,Publisher: func(owner,channel,root,message string)(string,error) {
+				return p.createTwinPost(owner,channel,root,message,"")
+			}},
+			SiteURL: siteURL,
+		}).ServeHTTP(w,r)
+		return
+	}
 	if r.URL.Path == "/api/agent/token" {
 		(TokenSettingsHandler{Manager: &TokenManager{Store: pluginAccessTokenStore{Plugin: p}}}).ServeHTTP(w, r)
 		return
