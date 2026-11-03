@@ -26,7 +26,7 @@ test('real Chromium renders verified AI badge in English and Russian, and opens 
         await page.getByRole('textbox', {name: 'Email or Username'}).fill(server.users.misha.username);
         await page.getByRole('textbox', {name: 'Password'}).fill(server.users.misha.password);
         await page.getByRole('button', {name: 'Log in', exact: true}).click();
-        await expect(page.getByText('AI-assisted investigation result')).toBeVisible({timeout: 30_000});
+        await expect(page.getByText('AI-assisted investigation result', {exact: true})).toBeVisible({timeout: 30_000});
         await expect(page.getByTitle('Sent by a personal AI twin, not typed by the person')).toBeVisible({timeout: 20_000});
         // Neither ordinary human posts nor client-forged props earn the badge.
         expect(await page.getByTitle('Sent by a personal AI twin, not typed by the person').count()).toBe(1);

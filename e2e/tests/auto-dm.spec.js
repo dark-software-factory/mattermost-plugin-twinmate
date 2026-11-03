@@ -1,10 +1,11 @@
 const {test, expect} = require('./fixtures');
 const {getSession, requireOK, pluginBase} = require('../helpers/mm-api');
-const {sendPost} = require('../helpers/scenarios');
+const {sendPost, getTeam} = require('../helpers/scenarios');
 
 test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified reply and stops after opt-out', async ({server, request}) => {
     const [misha, petya] = await Promise.all(['misha', 'petya'].map((name) => getSession(server, name)));
     try {
+        const team = await getTeam(misha);
         const dm = await requireOK(await misha.post('/api/v4/channels/direct', {data: [misha.id, petya.id]}), 'create direct message');
         const endpoint = 'https://twinmate-agent:8443/events';
         const saved = await misha.put(`${pluginBase}/api/config`, {
@@ -14,7 +15,7 @@ test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified re
 
         const before = await requireOK(await request.get(`${server.agentStatusURL}/`), 'check fake-agent initial events');
         const optIn = await misha.post('/api/v4/commands/execute', {
-            data: {channel_id: dm.id, command: '/twinmate on'},
+            data: {team_id: team.id, channel_id: dm.id, command: '/twinmate on'},
         });
         expect(optIn.status(), await optIn.text()).toBe(200);
 
@@ -41,7 +42,7 @@ test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified re
         expect(proof.verified).toBe(true);
 
         const optOut = await misha.post('/api/v4/commands/execute', {
-            data: {channel_id: dm.id, command: '/twinmate off'},
+            data: {team_id: team.id, channel_id: dm.id, command: '/twinmate off'},
         });
         expect(optOut.status(), await optOut.text()).toBe(200);
         await sendPost(petya, dm.id, 'Do not forward this post to my agent');
