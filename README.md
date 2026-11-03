@@ -141,3 +141,22 @@ Return `{"reply":""}` when the agent chooses not to speak. Calls time out after 
 ## Development
 
 The [original DM design](docs/superpowers/specs/2026-11-03-twinmate-mvp-design.md) and [agent-initiated API design](docs/superpowers/specs/2026-11-03-twinmate-agent-api-design.md), with their implementation plans, capture current decisions and tradeoffs.
+
+### Full integration tests
+
+The `e2e/` Playwright suite follows the disposable Mattermost + PostgreSQL Testcontainers pattern used in the [Mattermost Docs plugin](https://github.com/mattermost/mattermost-plugin-docs). It builds and uploads the **actual** plugin archive to a newly created Mattermost 11 server, creates four real users, and runs six browser/API/MCP scenarios:
+
+- Startup and plugin activation through Mattermost's official API.
+- Per-user key issuance, rotation/revocation, private-channel isolation, real permission checks, chronological paging, thread scope, AI post ownership and server-verified provenance.
+- A compiled Go stdio MCP process calling the real server through a disposable, certificate-validated HTTPS proxy.
+- Chromium rendering of the AI badge in English and Russian, plus the settings dialog.
+
+With a local Docker daemon, Go, Node.js 24, Chromium dependencies and OpenSSL:
+
+```bash
+make test-e2e
+```
+
+The separate GitHub Actions **Mattermost integration E2E** workflow runs the same suite on pull requests and `main`, preserving Playwright traces, JUnit output and Mattermost logs on failure. The suite always creates its own server and refuses the `MM_E2E_USE_EXISTING_SERVER` escape hatch; it never seeds a team Mattermost instance. No mock Mattermost service is involved.
+
+Automatic DM push callbacks are not yet covered by this suite; they require an additional server-to-agent HTTPS test fixture.

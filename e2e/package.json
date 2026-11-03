@@ -1,0 +1,17 @@
+{
+  "name": "mattermost-plugin-twinmate-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {"node": ">=20"},
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "install:browsers": "playwright install --with-deps chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.1",
+    "@testcontainers/postgresql": "10.16.0",
+    "testcontainers": "10.16.0"
+  }
+}
