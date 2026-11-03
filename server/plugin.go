@@ -247,6 +247,10 @@ func (p *Plugin) verifiedPostForViewer(postID, viewerID string) (bool, error) {
 }
 
 func (p *Plugin) ServeHTTP(_ *plugin.Context, w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api/agent/token" {
+		(TokenSettingsHandler{Manager: &TokenManager{Store: pluginAccessTokenStore{Plugin: p}}}).ServeHTTP(w, r)
+		return
+	}
 	if r.URL.Path == "/api/config" {
 		(&SettingsHandler{Store: p, AllowPrivate: p.allowPrivate.Load()}).ServeHTTP(w, r)
 		return
