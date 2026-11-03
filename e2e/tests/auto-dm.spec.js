@@ -2,7 +2,7 @@ const {test, expect} = require('./fixtures');
 const {getSession, requireOK, pluginBase} = require('../helpers/mm-api');
 const {sendPost, getTeam, issueKey, agentCall} = require('../helpers/scenarios');
 
-test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified reply and stops after opt-out', async ({server, request}) => {
+test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified reply and stops after opt-out', async ({server, request}, testInfo) => {
     const [misha, petya, outsider] = await Promise.all(['misha', 'petya', 'outsider'].map((name) => getSession(server, name)));
     try {
         const team = await getTeam(misha);
@@ -12,6 +12,20 @@ test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified re
             data: {endpoint, token: 'disposable-e2e-bearer', enabled: true, remove_token: false},
         });
         expect(saved.status(), await saved.text()).toBe(200);
+
+        const status = await requireOK(await misha.post('/api/v4/commands/execute', {
+            data: {team_id: team.id, channel_id: dm.id, command: '/twinmate status'},
+        }), 'read initial DM opt-in status');
+        if (testInfo.retry === 0) {
+            // On a fresh server, automatic replies must be disabled by default.
+            expect(status.text).toContain('**off**');
+        }
+        // Playwright retries reuse the global disposable Mattermost server.
+        // A previous attempt might have failed after enabling this DM.
+        const reset = await requireOK(await misha.post('/api/v4/commands/execute', {
+            data: {team_id: team.id, channel_id: dm.id, command: '/twinmate off'},
+        }), 'reset DM opt-in before this attempt');
+        expect(reset.text).toContain('now off');
 
         const before = await requireOK(await request.get(`${server.agentStatusURL}/`), 'check fake-agent initial events');
         await sendPost(petya, dm.id, 'Private content before opt-in');

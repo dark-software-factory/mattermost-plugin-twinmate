@@ -49,8 +49,19 @@ async function trustedProxy(target) {
     }
 }
 
+function mcpBinaryForPlatform(platform = process.platform, architecture = process.arch) {
+    const supported = {
+        'linux/x64': 'linux-amd64',
+        'darwin/x64': 'darwin-amd64',
+        'darwin/arm64': 'darwin-arm64',
+    };
+    const target = supported[`${platform}/${architecture}`];
+    if (!target) {throw new Error(`Unsupported E2E MCP host: ${platform}/${architecture}`);}
+    return path.resolve(__dirname, `../../dist/twinmate-mcp-${target}`);
+}
+
 async function startMCP(url, cert, token) {
-    const binary = path.resolve(__dirname, '../../dist/twinmate-mcp-linux-amd64');
+    const binary = mcpBinaryForPlatform();
     if (!fs.existsSync(binary)) {throw new Error(`Missing compiled MCP executable: ${binary}`);}
     const child = spawn(binary, [], {
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -107,4 +118,4 @@ async function startMCP(url, cert, token) {
     };
 }
 
-module.exports = {trustedProxy, startMCP};
+module.exports = {trustedProxy, startMCP, mcpBinaryForPlatform};

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "engines": {"node": ">=20"},
   "scripts": {
-    "test": "playwright test",
+    "test": "node --test helpers/mcp.test.js && playwright test",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "install:browsers": "playwright install --with-deps chromium"

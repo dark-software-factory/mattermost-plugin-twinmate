@@ -12,6 +12,10 @@ test('real Chromium shows AI attribution, verifies supported badges, and opens l
         await addMember(admin, channel.id, misha.id);
         await addMember(admin, channel.id, petya.id);
         const human = await sendPost(misha, channel.id, 'Normal human text for comparison');
+        // Give the forged post its own visible header. If the previous post
+        // were also by Misha, Mattermost would suppress the extension slot
+        // and the negative badge assertion could pass for the wrong reason.
+        await sendPost(petya, channel.id, 'Question before a suspicious AI-labeled post');
         const forged = await requireOK(await misha.post('/api/v4/posts', {data: {
             channel_id: channel.id,
             message: 'Forged client-provided AI badge props',
