@@ -1,0 +1,61 @@
+name: Mattermost integration E2E
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  mattermost-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mattermost: '11.0'
+            header-badge: 'false'
+          - mattermost: '11.11'
+            header-badge: 'true'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            webapp/package-lock.json
+            e2e/package-lock.json
+      - name: Install plugin dependencies
+        run: npm ci --prefix webapp
+      - name: Resolve Go dependencies
+        run: go mod tidy
+      - name: Compile real server, web bundle, and Linux MCP client
+        run: make bundle build-mcp
+      - name: Install Playwright and Testcontainers
+        run: npm ci --prefix e2e
+      - name: Install Chromium
+        run: cd e2e && npx playwright install chromium --with-deps
+      - name: Run integration suite against disposable Mattermost
+        run: npm test --prefix e2e
+        env:
+          CI: 'true'
+          MM_E2E_IMAGE: mattermost/mattermost-team-edition:release-${{ matrix.mattermost }}
+          MM_E2E_EXPECT_HEADER_BADGE: ${{ matrix.header-badge }}
+      - name: Upload integration traces, JUnit and Mattermost logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twinmate-mattermost-e2e-${{ matrix.mattermost }}
+          if-no-files-found: warn
+          path: |
+            e2e/test-results/
+            e2e/results/
+            e2e/logs/
