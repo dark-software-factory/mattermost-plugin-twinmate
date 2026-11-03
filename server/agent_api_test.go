@@ -135,6 +135,7 @@ func TestAgentAPIBridgeErrorsHaveStableSentinels(t *testing.T) {
 }
 
 type fakeMattermostBridgeAPI struct {
+	user *model.User
 	post *model.Post
 	channel *model.Channel
 	allowRead bool
@@ -142,6 +143,8 @@ type fakeMattermostBridgeAPI struct {
 	member bool
 	thread *model.PostList
 }
+
+func (f *fakeMattermostBridgeAPI) GetUser(string) (*model.User,*model.AppError) {return f.user,nil}
 
 func (f *fakeMattermostBridgeAPI) GetPost(string) (*model.Post,*model.AppError) {return f.post,nil}
 func (f *fakeMattermostBridgeAPI) GetPostThread(string) (*model.PostList,*model.AppError) {return f.thread,nil}
@@ -158,7 +161,7 @@ func (f *fakeMattermostBridgeAPI) HasPermissionToChannel(_,_ string,perm *model.
 
 func TestMattermostBridgeChecksPermissionsBeforeReturningThread(t *testing.T) {
 	post:=&model.Post{Id:examplePostID,ChannelId:"secret-dm",UserId:"petya",Message:"private"}
-	f:=&fakeMattermostBridgeAPI{post:post,channel:&model.Channel{Id:"secret-dm",Type:model.ChannelTypeDirect},allowRead:false,member:true,thread:&model.PostList{Order:[]string{examplePostID},Posts:map[string]*model.Post{examplePostID:post}}}
+	f:=&fakeMattermostBridgeAPI{user:&model.User{Id:"misha"},post:post,channel:&model.Channel{Id:"secret-dm",Type:model.ChannelTypeDirect},allowRead:false,member:true,thread:&model.PostList{Order:[]string{examplePostID},Posts:map[string]*model.Post{examplePostID:post}}}
 	bridge:=MattermostBridge{API:f}
 	if _,err:=bridge.Context("misha",examplePostID);!errors.Is(err,ErrAgentForbidden) {t.Fatalf("private context returned: %v",err)}
 	f.allowRead=true
@@ -170,7 +173,7 @@ func TestMattermostBridgeChecksPermissionsBeforeReturningThread(t *testing.T) {
 }
 
 func TestMattermostBridgePreventsCrossChannelReplyAndUnauthorizedWrite(t *testing.T) {
-	f:=&fakeMattermostBridgeAPI{post:&model.Post{Id:examplePostID,ChannelId:"channel-A"},channel:&model.Channel{Id:"channel-A",Type:model.ChannelTypeOpen},allowWrite:true,member:true}
+	f:=&fakeMattermostBridgeAPI{user:&model.User{Id:"misha"},post:&model.Post{Id:examplePostID,ChannelId:"channel-A"},channel:&model.Channel{Id:"channel-A",Type:model.ChannelTypeOpen},allowWrite:true,member:true}
 	called:=false
 	bridge:=MattermostBridge{API:f,Publisher:func(owner,channel,root,message string)(string,error) {called=true;return "posted-id",nil}}
 	if _,err:=bridge.Send("misha","channel-B",examplePostID,"hello");!errors.Is(err,ErrAgentBadInput) {t.Fatalf("cross-channel reply accepted: %v",err)}
@@ -180,4 +183,20 @@ func TestMattermostBridgePreventsCrossChannelReplyAndUnauthorizedWrite(t *testin
 	f.allowWrite=true
 	id,err:=bridge.Send("misha","channel-A",examplePostID,"hello")
 	if err!=nil || id!="posted-id" || !called {t.Fatalf("authorized write failed: %s %v",id,err)}
+}
+
+func TestMattermostBridgeRejectsDeactivatedOwnerEvenWithChannelPermissions(t *testing.T) {
+	post:=&model.Post{Id:examplePostID,ChannelId:"dm-1",Message:"secret"}
+	f:=&fakeMattermostBridgeAPI{user:&model.User{Id:"misha",DeleteAt:123},post:post,channel:&model.Channel{Id:"dm-1",Type:model.ChannelTypeDirect},allowRead:true,allowWrite:true,member:true,thread:&model.PostList{Order:[]string{examplePostID},Posts:map[string]*model.Post{examplePostID:post}}}
+	called:=false
+	b:=MattermostBridge{API:f,Publisher:func(owner,channel,root,message string)(string,error){called=true;return "bad",nil}}
+	if _,err:=b.Context("misha",examplePostID);!errors.Is(err,ErrAgentForbidden) {t.Fatalf("deactivated user read allowed: %v",err)}
+	if _,err:=b.Send("misha","dm-1","","hello");!errors.Is(err,ErrAgentForbidden) || called {t.Fatalf("deactivated user posted: %v",err)}
+}
+
+func TestMattermostBridgeRejectsArchivedChannelWrites(t *testing.T) {
+	f:=&fakeMattermostBridgeAPI{user:&model.User{Id:"misha"},channel:&model.Channel{Id:"archived",Type:model.ChannelTypePrivate,DeleteAt:123},allowWrite:true,member:true}
+	called:=false
+	b:=MattermostBridge{API:f,Publisher:func(owner,channel,root,message string)(string,error){called=true;return "bad",nil}}
+	if _,err:=b.Send("misha","archived","","hello");!errors.Is(err,ErrAgentForbidden) || called {t.Fatalf("archived channel write allowed: %v",err)}
 }
