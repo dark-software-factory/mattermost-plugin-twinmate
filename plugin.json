@@ -1,0 +1,29 @@
+{
+  "id": "com.darksoftwarefactory.twinmate",
+  "name": "Twinmate",
+  "description": "Connect personal AI twins to Mattermost direct messages with explicit attribution.",
+  "version": "0.1.0",
+  "homepage_url": "https://github.com/dark-software-factory/mattermost-plugin-twinmate",
+  "support_url": "https://github.com/dark-software-factory/mattermost-plugin-twinmate/issues",
+  "min_server_version": "11.0.0",
+  "server": {
+    "executables": {
+      "linux-amd64": "server/dist/plugin-linux-amd64"
+    }
+  },
+  "webapp": {
+    "bundle_path": "webapp/dist/main.js"
+  },
+  "settings_schema": {
+    "header": "Twinmate agent connectivity",
+    "settings": [
+      {
+        "key": "AllowPrivateEndpoints",
+        "display_name": "Allow private-network agent endpoints",
+        "type": "bool",
+        "help_text": "Security-sensitive: allow agents on localhost, private IPs and internal DNS names. Use only when the Mattermost server and agents are in a trusted network.",
+        "default": false
+      }
+    ]
+  }
+}

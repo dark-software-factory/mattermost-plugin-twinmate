@@ -1,0 +1,44 @@
+name: CI
+on:
+  push:
+    branches: [main, feat/twinmate-mvp]
+  pull_request:
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Fetch Go dependencies
+        run: go mod tidy
+      - name: Test server
+        run: go test ./...
+      - name: Vet server
+        run: go vet ./...
+      - name: Install webapp dependencies
+        run: npm ci --prefix webapp --no-audit --no-fund
+      - name: Test webapp
+        run: npm test --prefix webapp
+      - name: Build Mattermost package
+        run: make bundle
+      - name: Build local Go MCP clients
+        run: make build-mcp
+      - name: Inspect package
+        run: tar -tzf dist/com.darksoftwarefactory.twinmate-0.1.0.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: twinmate-linux-amd64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: twinmate-mcp-binaries
+          path: dist/twinmate-mcp-*
+          if-no-files-found: error
