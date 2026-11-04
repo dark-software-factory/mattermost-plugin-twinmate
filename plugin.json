@@ -21,8 +21,15 @@
         "key": "AllowPrivateEndpoints",
         "display_name": "Allow private-network agent endpoints",
         "type": "bool",
-        "help_text": "Security-sensitive: allow agents on localhost, private IPs and internal DNS names. Use only when the Mattermost server and agents are in a trusted network.",
+        "help_text": "Enable private callbacks only to exact hosts in AllowedPrivateHosts. This switch alone grants no network access.",
         "default": false
+      },
+      {
+        "key": "AllowedPrivateHosts",
+        "display_name": "Approved private callback hosts",
+        "type": "text",
+        "help_text": "Comma-separated exact host:port entries, e.g. twinmate-agent:8443, agent.internal:443. No wildcards. TLS is still required.",
+        "default": ""
       }
     ]
   }

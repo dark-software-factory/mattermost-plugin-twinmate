@@ -18,8 +18,8 @@ async function readTokenStatus(fetcher = fetch) {
     return response.json();
 }
 
-async function rotateAgentToken(fetcher = fetch) {
-    const response = await fetcher(tokenURL, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', ...csrfHeaders()}, body: '{}'});
+async function rotateAgentToken(fetcher = fetch, options = {allow_send: false, channel_ids: []}) {
+    const response = await fetcher(tokenURL, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', ...csrfHeaders()}, body: JSON.stringify(options)});
     if (!response.ok) { throw new Error('Unable to create Twinmate agent token'); }
     const {token} = await response.json();
     if (!token) { throw new Error('Token not returned by Twinmate'); }

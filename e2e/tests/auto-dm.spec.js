@@ -36,6 +36,8 @@ test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified re
             data: {team_id: team.id, channel_id: dm.id, command: '/twinmate on'},
         });
         expect(optIn.status(), await optIn.text()).toBe(200);
+        const visible = await requireOK(await petya.get(`/api/v4/channels/${dm.id}/posts?per_page=30`), 'read DM disclosure');
+        expect(Object.values(visible.posts).some((post) => post.user_id === misha.id && post.message.includes('Twinmate notice') && post.message.includes('outside Mattermost'))).toBe(true);
 
         const trigger = await sendPost(petya, dm.id, 'Please investigate the broken migration');
         const outsiderKey = await issueKey(outsider);

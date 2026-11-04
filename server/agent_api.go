@@ -17,6 +17,7 @@ var (
 	ErrAgentForbidden = errors.New("agent owner lacks channel permission")
 	ErrAgentNotFound = errors.New("Mattermost message or channel not found")
 	ErrAgentBadInput = errors.New("invalid Twinmate agent request")
+	ErrAgentScanLimit = errors.New("thread page exceeds bounded scan budget")
 )
 
 type ContextPost struct {
@@ -36,7 +37,7 @@ type MessagePage struct {
 	NextCursor string `json:"next_cursor,omitempty"`
 }
 
-type AgentTokenAuthenticator interface { Authenticate(raw string) (string,error) }
+type AgentTokenAuthenticator interface { AuthenticateClaims(raw string) (AgentClaims,error) }
 type AgentBridge interface {
 	Get(owner, postID string) (ContextPost,error)
 	List(owner, postID, direction, scope string, limit int) (MessagePage,error)
@@ -92,6 +93,7 @@ func agentBridgeError(w http.ResponseWriter, err error) {
 	case errors.Is(err,ErrAgentForbidden): writeAgentError(w,http.StatusForbidden,"not allowed to access this channel")
 	case errors.Is(err,ErrAgentNotFound): writeAgentError(w,http.StatusNotFound,"message or channel not found")
 	case errors.Is(err,ErrAgentBadInput): writeAgentError(w,http.StatusBadRequest,"invalid message or channel")
+	case errors.Is(err,ErrAgentScanLimit): writeAgentError(w,http.StatusUnprocessableEntity,"thread too sparse; use channel history paging")
 	default: writeAgentError(w,http.StatusInternalServerError,"Mattermost operation failed")
 	}
 }
@@ -99,9 +101,10 @@ func agentBridgeError(w http.ResponseWriter, err error) {
 func (h AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control","no-store")
 	w.Header().Set("Content-Type","application/json")
-	owner,err:=h.Tokens.Authenticate(r.Header.Get("X-Twinmate-Token"))
+	claims,err:=h.Tokens.AuthenticateClaims(r.Header.Get("X-Twinmate-Token"))
 	if errors.Is(err,ErrInvalidAgentToken) {writeAgentError(w,http.StatusUnauthorized,"invalid Twinmate token");return}
 	if err!=nil {writeAgentError(w,http.StatusInternalServerError,"authentication failed");return}
+	owner:=claims.OwnerID
 	switch r.URL.Path {
 	case "/api/agent/posts/get", "/api/agent/posts/list":
 		if r.Method!=http.MethodGet {writeAgentError(w,http.StatusMethodNotAllowed,"GET required");return}
@@ -110,6 +113,7 @@ func (h AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path=="/api/agent/posts/get" {
 			post,err:=h.Bridge.Get(owner,id)
 			if err!=nil {agentBridgeError(w,err);return}
+			if !claims.AllowsChannel(post.ChannelID) {writeAgentError(w,http.StatusForbidden,"outside key channel scope");return}
 			_ = json.NewEncoder(w).Encode(post)
 			return
 		}
@@ -126,9 +130,11 @@ func (h AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		page,err:=h.Bridge.List(owner,id,direction,scope,limit)
 		if err!=nil {agentBridgeError(w,err);return}
+		if !claims.AllowsChannel(page.ChannelID) {writeAgentError(w,http.StatusForbidden,"outside key channel scope");return}
 		_ = json.NewEncoder(w).Encode(page)
 	case "/api/agent/messages":
 		if r.Method!=http.MethodPost {writeAgentError(w,http.StatusMethodNotAllowed,"POST required");return}
+		if !claims.AllowSend {writeAgentError(w,http.StatusForbidden,"key does not allow sending");return}
 		if !strings.HasPrefix(r.Header.Get("Content-Type"),"application/json") {writeAgentError(w,http.StatusUnsupportedMediaType,"application/json required");return}
 		var input struct {
 			ChannelID string `json:"channel_id"`
@@ -142,6 +148,14 @@ func (h AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err:=dec.Decode(&trailing);err!=io.EOF {writeAgentError(w,http.StatusBadRequest,"multiple JSON objects");return}
 		if strings.TrimSpace(input.Message)=="" || len([]byte(input.Message))>15000 || (input.ChannelID=="" && input.ReplyToPostID=="") {
 			writeAgentError(w,http.StatusBadRequest,"message and channel or reply target required");return
+		}
+		if len(claims.ChannelIDs)>0 {
+			if input.ChannelID!="" && !claims.AllowsChannel(input.ChannelID) {writeAgentError(w,http.StatusForbidden,"outside key channel scope");return}
+			if input.ReplyToPostID!="" {
+				reply,err:=h.Bridge.Get(owner,input.ReplyToPostID)
+				if err!=nil {agentBridgeError(w,err);return}
+				if !claims.AllowsChannel(reply.ChannelID) {writeAgentError(w,http.StatusForbidden,"outside key channel scope");return}
+			}
 		}
 		id,err:=h.Bridge.Send(owner,input.ChannelID,input.ReplyToPostID,input.Message)
 		if err!=nil {agentBridgeError(w,err);return}

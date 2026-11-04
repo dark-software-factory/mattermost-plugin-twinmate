@@ -52,6 +52,18 @@ func (p *Plugin) ExecuteCommand(_ *plugin.Context, args *model.CommandArgs) (*mo
 		}
 		return respond("Your Twinmate is **off** in this DM. Configure your agent in Twinmate settings, then use `/twinmate on`.")
 	}
+	if command=="on" {
+		enabled,err:=p.DMEnabled(nil,args.UserId,args.ChannelId)
+		if err!=nil {return respond("Unable to read Twinmate settings.")}
+		if !enabled {
+			_,noticeErr:=p.API.CreatePost(&model.Post{
+				UserId:args.UserId,ChannelId:args.ChannelId,
+				Message:"🔔 **Twinmate notice:** This DM now allows a participant's personal AI agent to receive new messages outside Mattermost and send visibly labeled AI-generated replies. Ask the participant to use `/twinmate off` to stop forwarding.",
+				Props:model.StringInterface{"from_webhook":"true"},
+			})
+			if noticeErr!=nil {return respond("Could not notify the other participant; Twinmate was not enabled.")}
+		}
+	}
 	if err := p.setDM(args.UserId, args.ChannelId, command == "on"); err != nil {
 		return respond(fmt.Sprintf("Failed to update Twinmate: %v", err))
 	}

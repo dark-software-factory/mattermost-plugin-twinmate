@@ -2,7 +2,8 @@
   "PluginSettings": {
     "Plugins": {
       "com.darksoftwarefactory.twinmate": {
-        "AllowPrivateEndpoints": true
+        "AllowPrivateEndpoints": true,
+        "AllowedPrivateHosts": "twinmate-agent:8443"
       }
     }
   }

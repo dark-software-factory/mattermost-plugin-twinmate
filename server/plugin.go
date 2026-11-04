@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -48,17 +51,70 @@ func shouldProcessPost(post *model.Post, author *model.User) bool {
 type Plugin struct {
 	plugin.MattermostPlugin
 	allowPrivate atomic.Bool
+	privateHosts atomic.Value // []string, changed atomically on config reload
+	publishing sync.Map // server-created posts in flight, keyed by author/channel/body
 	workSlots chan struct{}
+}
+
+func pendingTwinKey(post *model.Post) string {
+	return post.UserId+"\x00"+post.ChannelId+"\x00"+post.RootId+"\x00"+post.Message
+}
+
+func (p *Plugin) shouldProcessPost(post *model.Post, author *model.User) bool {
+	if post==nil || post.UserId=="" || post.ChannelId=="" || strings.TrimSpace(post.Message)=="" || post.Type!="" || (author!=nil && (author.IsBot || author.DeleteAt!=0)) {return false}
+	if post.GetProp("from_webhook")=="true" {return false}
+	if _,pending:=p.publishing.Load(pendingTwinKey(post));pending {return false}
+	if strings.HasPrefix(post.Message,twinmateLabel) {
+		data,err:=p.API.KVGet(postProvenanceKey(post.Id))
+		if err!=nil {return false} // fail closed on attribution store outage
+		var origin storedPostProvenance
+		if json.Unmarshal(data,&origin)==nil && postMatchesProvenance(post,origin) {return false}
+	}
+	return true
+}
+
+// MessageWillBeUpdated protects the native-mobile body label against edits.
+// The record is server-owned; neither the client prop nor text by itself is proof.
+func (p *Plugin) MessageWillBeUpdated(_ *plugin.Context, newPost, oldPost *model.Post) (*model.Post,string) {
+	if oldPost==nil || newPost==nil || oldPost.Id=="" {return nil,""}
+	data,err:=p.API.KVGet(postProvenanceKey(oldPost.Id))
+	if err!=nil {return nil,"Twinmate cannot verify AI attribution right now"}
+	if len(data)==0 {return nil,""}
+	var origin storedPostProvenance
+	if json.Unmarshal(data,&origin)!=nil || origin.OwnerID!=oldPost.UserId || origin.ChannelID!=oldPost.ChannelId {return nil,""}
+	if !strings.HasPrefix(newPost.Message,twinmateLabel) {return nil,"Twinmate AI attribution cannot be removed"}
+	return nil,""
 }
 
 func (p *Plugin) OnConfigurationChange() error {
 	var config struct {
 		AllowPrivateEndpoints bool `json:"AllowPrivateEndpoints"`
+		AllowedPrivateHosts string `json:"AllowedPrivateHosts"`
 	}
 	if err := p.API.LoadPluginConfiguration(&config); err != nil {
 		return err
 	}
 	p.allowPrivate.Store(config.AllowPrivateEndpoints)
+	approved := make([]string,0)
+	for _,entry := range strings.FieldsFunc(config.AllowedPrivateHosts,func(c rune)bool {return c==',' || c=='\n'}) {
+		entry = strings.TrimSpace(entry)
+		host,port,err:=net.SplitHostPort(entry)
+		if err!=nil || host=="" || port=="" || strings.ContainsAny(host,"*/@") || !validPrivatePort(port) {
+			return fmt.Errorf("invalid AllowedPrivateHosts entry %q: expected exact host:port",entry)
+		}
+		approved=append(approved,net.JoinHostPort(strings.ToLower(host),port))
+	}
+	p.privateHosts.Store(approved)
+	return nil
+}
+
+func validPrivatePort(port string) bool {
+	n,err:=strconv.Atoi(port)
+	return err==nil && n>0 && n<=65535
+}
+
+func (p *Plugin) approvedPrivateHosts() []string {
+	if v:=p.privateHosts.Load();v!=nil{return v.([]string)}
 	return nil
 }
 
@@ -72,7 +128,7 @@ func (p *Plugin) OnActivate() error {
 }
 
 func (p *Plugin) MessageHasBeenPosted(_ *plugin.Context, post *model.Post) {
-	if !shouldProcessPost(post, nil) {
+	if !p.shouldProcessPost(post, nil) {
 		return
 	}
 	// Copy hook-owned data before launching a goroutine. Never retain the
@@ -98,10 +154,10 @@ func (p *Plugin) MessageHasBeenPosted(_ *plugin.Context, post *model.Post) {
 			p.API.LogWarn("Twinmate cannot verify sender", "user_id", message.SenderID, "error", appErr.Error())
 			return
 		}
-		if author == nil || author.IsBot {
+		if author == nil || author.IsBot || author.DeleteAt != 0 {
 			return
 		}
-		processor := core.Processor{Platform: p, Agent: agent.NewClient(p.allowPrivate.Load())}
+		processor := core.Processor{Platform: p, Agent: agent.NewClient(p.allowPrivate.Load(), p.approvedPrivateHosts()...)}
 		if err := processor.Handle(ctx, message); err != nil {
 			p.API.LogError("Twinmate event failed", "post_id", message.ID, "error", err.Error())
 		}
@@ -118,6 +174,7 @@ func (p *Plugin) Recipient(_ context.Context, channelID, senderID string) (strin
 	if channel.Type != model.ChannelTypeDirect {
 		return "", nil
 	}
+	if channel.DeleteAt!=0 {return "",nil}
 	members, appErr := p.API.GetChannelMembers(channelID, 0, 3)
 	if appErr != nil {
 		return "", appErr
@@ -135,6 +192,10 @@ func (p *Plugin) Recipient(_ context.Context, channelID, senderID string) (strin
 	}
 	if !seenSender {
 		return "", nil
+	}
+	user,appErr:=p.API.GetUser(other)
+	if appErr!=nil || user==nil || user.DeleteAt!=0 || user.IsBot || !p.API.HasPermissionToChannel(other,channelID,model.PermissionReadChannel) {
+		return "",nil
 	}
 	return other, nil
 }
@@ -189,6 +250,7 @@ func (p *Plugin) setDM(userID, channelID string, enabled bool) error {
 }
 
 func (p *Plugin) Publish(_ context.Context, ownerID, channelID, rootID, text, sourceID string) error {
+	if !((MattermostBridge{API:p.API}).canAccess(ownerID,channelID,model.PermissionCreatePost)) {return ErrAgentForbidden}
 	_, err := p.createTwinPost(ownerID, channelID, rootID, text, sourceID)
 	return err
 }
@@ -198,7 +260,7 @@ func (p *Plugin) createTwinPost(ownerID, channelID, rootID, text, sourceID strin
 	if len([]byte(text)) > 15000 {
 		return "",errors.New("agent reply exceeds the 15000-byte Twinmate limit")
 	}
-	created, appErr := p.API.CreatePost(&model.Post{
+	post := &model.Post{
 		UserId: ownerID, ChannelId: channelID, RootId: rootID,
 		Message: twinmateLabel + text,
 		Props: model.StringInterface{
@@ -206,7 +268,11 @@ func (p *Plugin) createTwinPost(ownerID, channelID, rootID, text, sourceID strin
 				"generated": true, "owner_id": ownerID, "source_post_id": sourceID,
 			},
 		},
-	})
+	}
+	key:=pendingTwinKey(post)
+	p.publishing.Store(key,struct{}{})
+	defer p.publishing.Delete(key)
+	created, appErr := p.API.CreatePost(post)
 	if appErr != nil {
 		return "",fmt.Errorf("publishing Twinmate response: %w", appErr)
 	}
@@ -282,7 +348,7 @@ func (p *Plugin) ServeHTTP(_ *plugin.Context, w http.ResponseWriter, r *http.Req
 		return
 	}
 	if r.URL.Path == "/api/config" {
-		(&SettingsHandler{Store: p, AllowPrivate: p.allowPrivate.Load()}).ServeHTTP(w, r)
+		(&SettingsHandler{Store: p, AllowPrivate: p.allowPrivate.Load(), ApprovedHosts:p.approvedPrivateHosts()}).ServeHTTP(w, r)
 		return
 	}
 	if r.URL.Path != "/api/provenance" {

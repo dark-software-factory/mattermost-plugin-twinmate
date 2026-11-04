@@ -56,7 +56,7 @@ The local MCP adapter exposes three tools:
 
 - `twinmate_get_post(reference)` — fetch one post by ID or Mattermost permalink, including its channel/thread identifiers.
 - `twinmate_list_posts(reference, direction, scope?, limit?)` — fetch messages `before` or `after` that post in `channel` (default) or `thread` scope, 1–50 at a time (default 20). Responses include `has_more` and `next_cursor`; pass the latter as the next `reference` to continue. The agent chooses how much context to request.
-- `twinmate_send_message(message, channel_id?, reply_to_post_id?)` — post a new message or reply as the token owner with verified AI provenance.
+- `twinmate_send_message(message, channel_id?, reply_to_post_id?)` — post a new message or reply as the token owner with verified AI provenance. Requires a key issued with **Allow sending** checked.
 
 No `/twinmate on` command is necessary for **agent-initiated** calls; that command controls *automatic* DM responses only.
 
@@ -85,7 +85,7 @@ curl -X POST -H 'Content-Type: application/json' \
   'https://mattermost.example.com/plugins/com.darksoftwarefactory.twinmate/api/agent/messages'
 ```
 
-Both read endpoints accept `reference` as either a Mattermost permalink or post ID and never fetch arbitrary URLs. Responses contain chronological, non-deleted text posts, never post props or attachment contents. The plugin checks the current owner's user status and channel permissions for every request; publishing also checks channel membership and rejects archived channels. **The personal key grants read-by-link and send-as-owner capabilities:** keep it secret, and revoke it if your machine is compromised.
+Both read endpoints accept `reference` as either a Mattermost permalink or post ID and never fetch arbitrary URLs. Responses contain chronological, non-deleted text posts, never post props or attachment contents. The plugin checks the current owner's user status and channel permissions for every request; publishing also checks channel membership and rejects archived channels. New keys are **read-only by default**; grant send-as-owner explicitly in settings. Optionally narrow either capability to specific channel IDs. Keep keys secret and revoke them if your machine is compromised.
 
 ## Optional automatic DM responses
 
@@ -121,11 +121,11 @@ Return `{"reply":""}` when the agent chooses not to speak. Calls time out after 
 
 ## Security and privacy
 
-- All connections and per-DM permissions start disabled. **Enabling a twin means the external agent can receive new messages from that DM.** Communicate this to the other participant and obtain any consent your organization requires.
-- Private, loopback and link-local destinations are blocked by default, including DNS-resolved IPs at connection time; an administrator may enable private-network endpoints in plugin settings. This carries server-side request forgery risk and is for trusted corporate networks only.
+- All connections and per-DM permissions start disabled. **Enabling a twin means the external agent can receive new messages from that DM.** `/twinmate on` now posts a visible notice in the conversation before enabling forwarding. This notice is not a substitute for any consent required by your organization.
+- Private, loopback and link-local callback destinations are blocked by default, including DNS-resolved IPs at connection time. To reach a private agent, an administrator must enable `AllowPrivateEndpoints` **and** list the exact `host:port` (for example `twinmate-agent:8443`) in `AllowedPrivateHosts`. A global opt-in alone grants no private egress. Redirects and proxies remain disabled.
 - Connection tokens are stored in the Mattermost plugin KV store. They are withheld from the browser's GET endpoint, but **they are not encrypted independently by this plugin**. Use a dedicated rotatable token and protect database backups.
-- By contrast, the inbound **Twinmate agent API key** is random, stored only as a SHA-256 digest, never returned on status GET, and can be rotated/revoked by its Mattermost owner. It authorizes reading linked messages and paginating within authorized conversations, and posting as that user; keep the key out of logs and untrusted configuration files.
-- AI post badges are shown only after checking a Mattermost-authenticated, DM-member-restricted provenance endpoint. A user can type a similar emoji label manually, but cannot obtain a verified Twinmate badge through post props alone.
+- By contrast, the inbound **Twinmate agent API key** is random, stored only as a SHA-256 digest, never returned on status GET, and can be rotated/revoked by its Mattermost owner. **New keys are read-only by default**. The owner can explicitly grant send-as-owner and optionally restrict the key to up to 32 Mattermost channel IDs. The server rechecks key scopes and Mattermost permissions on every operation. Previously issued keys remain valid with their old capabilities until rotated. Keep the key out of logs and untrusted configuration files.
+- AI post badges are shown only after checking a Mattermost-authenticated, DM-member-restricted provenance endpoint. A user can type a similar emoji label manually, but cannot obtain a verified Twinmate badge through post props alone. Edits that remove the in-body attribution from server-recorded AI messages are rejected.
 - The plugin currently publishes posts with the owner's Mattermost user ID to preserve two-person DM membership. This is **not a separate bot user**. The AI label and custom post props disclose the origin; native mobile clients display the in-body label, not a custom native badge.
 - Delivery is best-effort in memory with a 32-worker limit: a restart, an HTTP timeout or overload can lose an event. There is no outbox, retry queue or cross-node deduplication yet.
 
@@ -133,11 +133,11 @@ Return `{"reply":""}` when the agent chooses not to speak. Calls time out after 
 
 - No outbound reverse tunnel for **automatic DM push** agents behind NAT. Agent-initiated API/MCP calls already work from local machines without incoming connections.
 - No durable auto-reply queue, attachment downloads or automatic group-chat replies. The agent-initiated API can post to authorized channels and fetch channel/thread pages around a reference post.
-- No mutual participant-consent flow or external data retention governance yet.
+- No mutual participant-consent flow or external data retention governance yet. The mandatory visible DM notice is disclosure, **not** counterparty approval; organizations with strict data protection requirements should disable automatic forwarding until an approval mechanism is added.
 - No custom mobile client code. Native mobile clients cannot load webapp plugin React components.
 - Mattermost hides post headers for consecutive posts by the same author, so its `registerPostHeaderComponent` badge is also suppressed on those posts. The in-body `🤖 Twinmate · AI-generated` marker remains visible in all clients, including those grouped posts and native mobile clients.
-- Thread-scoped paging currently uses Mattermost's unpaginated plugin `GetPostThread` API internally; extremely long threads can be expensive to read, despite the 50-post response cap. This needs a bounded server-side pagination strategy before production rollout.
-- The agent-initiated API deliberately has no global search, attachment downloads, per-token fine-grained scopes or multiple simultaneous keys yet. Each read page is capped at 50 posts, but the agent may request more pages using the returned cursor.
+- Thread-scoped paging scans at most five upstream pages of 100 channel posts, never the unbounded plugin `GetPostThread` API. If a very sparse thread cannot be paginated within this fixed budget, it returns HTTP 422; the agent can switch to `scope=channel` paging.
+- The agent-initiated API deliberately has no global search, attachment downloads, per-operation rate limiter or multiple simultaneous keys yet. Each read page is capped at 50 posts. It supports read/send and channel-ID key scopes, but does not yet support expiring keys or a full audit trail.
 
 ## Development
 

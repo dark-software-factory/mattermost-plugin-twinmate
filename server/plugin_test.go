@@ -84,6 +84,48 @@ func TestOnlyHumanPostsAreForwarded(t *testing.T) {
 	}
 }
 
+func TestHumanTextMimickingLabelIsNotTrustedAsProvenance(t *testing.T) {
+    p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:&openChannelProvenanceAPI{readable:true}}}
+    plain:=&model.Post{Id:"human-forged",UserId:"human",ChannelId:"dm",Message:twinmateLabel+"Actual human request"}
+    if !p.shouldProcessPost(plain,&model.User{Id:"human"}) {
+        t.Fatal("untrusted post body suppressed a legitimate human message")
+    }
+}
+
+func TestGeneratedPostMarkerCannotBeEditedAway(t *testing.T) {
+    api:=&openChannelProvenanceAPI{readable:true}
+    p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:api}}
+    oldPost:=&model.Post{Id:"created-once",UserId:"misha",ChannelId:"open-channel",Message:twinmateLabel+"done"}
+    edited:=&model.Post{Id:oldPost.Id,UserId:oldPost.UserId,ChannelId:oldPost.ChannelId,Message:"done"}
+    _,reason:=p.MessageWillBeUpdated(nil,edited,oldPost)
+    if reason=="" {t.Fatal("author could edit away server-recorded AI attribution")}
+}
+
+type dmAuthorizationAPI struct {plugin.API; ownerDeleted,writeAllowed bool; posted bool}
+func (f *dmAuthorizationAPI) GetChannel(string)(*model.Channel,*model.AppError) {return &model.Channel{Id:"dm",Type:model.ChannelTypeDirect},nil}
+func (f *dmAuthorizationAPI) GetChannelMembers(string,int,int)([]*model.ChannelMember,*model.AppError) {
+    return []*model.ChannelMember{{UserId:"sender"},{UserId:"owner"}},nil
+}
+func (f *dmAuthorizationAPI) GetUser(id string)(*model.User,*model.AppError) {
+    u:=&model.User{Id:id}
+    if id=="owner" && f.ownerDeleted {u.DeleteAt=3}
+    return u,nil
+}
+func (f *dmAuthorizationAPI) HasPermissionToChannel(_, _ string, perm *model.Permission) bool {
+    return perm==model.PermissionReadChannel || (perm==model.PermissionCreatePost && f.writeAllowed)
+}
+func (f *dmAuthorizationAPI) GetChannelMember(_, user string)(*model.ChannelMember,*model.AppError) {return &model.ChannelMember{UserId:user},nil}
+func (f *dmAuthorizationAPI) CreatePost(post *model.Post)(*model.Post,*model.AppError) {f.posted=true;return post,nil}
+
+func TestAutomaticRepliesRecheckOwnerActivityAndWritePermissions(t *testing.T) {
+    api:=&dmAuthorizationAPI{ownerDeleted:true,writeAllowed:true}
+    p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:api}}
+    if owner,_:=p.Recipient(nil,"dm","sender");owner!="" {t.Fatalf("deactivated owner received external DM event: %s",owner)}
+    if err:=p.Publish(nil,"owner","dm","","response","trigger");err==nil || api.posted {t.Fatalf("published as deactivated owner: %v",err)}
+    api.ownerDeleted=false;api.writeAllowed=false
+    if err:=p.Publish(nil,"owner","dm","","response","trigger");err==nil || api.posted {t.Fatalf("published without current permission: %v",err)}
+}
+
 func TestPostProvenanceRequiresMatchingServerRecord(t *testing.T) {
 	post := &model.Post{Id: "twin-1", UserId: "misha", ChannelId: "dm-1", Message: twinmateLabel + "AI reply"}
 	if !postMatchesProvenance(post, storedPostProvenance{OwnerID: "misha", ChannelID: "dm-1"}) {

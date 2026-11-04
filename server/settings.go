@@ -18,6 +18,7 @@ type SettingsStore interface {
 type SettingsHandler struct {
 	Store        SettingsStore
 	AllowPrivate bool
+	ApprovedHosts []string
 }
 
 // Tokens are scoped to the original destination, not to arbitrary URLs a
@@ -75,7 +76,7 @@ func (h *SettingsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if incoming.Endpoint != "" {
-		if err := agent.ValidateEndpoint(incoming.Endpoint, h.AllowPrivate); err != nil {
+		if err := agent.ValidateEndpoint(incoming.Endpoint, h.AllowPrivate, h.ApprovedHosts...); err != nil {
 			http.Error(w, `{"error":"unsafe agent URL"}`, http.StatusBadRequest)
 			return
 		}
