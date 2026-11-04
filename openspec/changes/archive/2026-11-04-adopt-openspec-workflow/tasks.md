@@ -10,7 +10,7 @@
 
 ## 3. Validation and developer workflow
 
-- [ ] 3.1 Add `make spec-check` and CI checks for current specs and archived tasks.
-- [ ] 3.2 Document the change lifecycle and Codex/Cursor commands in README.
-- [ ] 3.3 Run the real OpenSpec validator, inspect artifact status, and archive this completed change.
-- [ ] 3.4 Verify relevant existing tests and open a GitHub PR without changing runtime code.
+- [x] 3.1 Add `make spec-check` and CI checks for current specs and archived tasks.
+- [x] 3.2 Document the change lifecycle and Codex/Cursor commands in README.
+- [x] 3.3 Run the real OpenSpec validator, inspect artifact status, and archive this completed change.
+- [x] 3.4 Verify relevant existing tests and open a GitHub PR without changing runtime code.

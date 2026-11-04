@@ -29,23 +29,23 @@
 
 **Files:** `openspec/config.yaml`, `.agents/skills/`, `.cursor/`, `AGENTS.md`.
 
-- [ ] Generate official `core` profile files for Codex/Cursor using OpenSpec 1.16.0.
-- [ ] Add concrete project constraints and per-artifact/operation guidance.
-- [ ] Confirm `openspec list --json` resolves this repository as its root.
+- [x] Generate official `core` profile files for Codex/Cursor using OpenSpec 1.16.0.
+- [x] Add concrete project constraints and per-artifact/operation guidance.
+- [x] Confirm `openspec list --json` resolves this repository as its root.
 
 ## Task 2: Baseline contracts and migration record
 
 **Files:** `openspec/specs/{agent-access,automatic-dm,ai-attribution}/spec.md`, `openspec/changes/archive/`.
 
-- [ ] Document current externally visible behavior and denial scenarios.
-- [ ] Create tooling-only `adopt-openspec-workflow` proposal, design, tasks and `skip_specs: true`.
-- [ ] Validate and archive only after the implementation and tests are complete.
+- [x] Document current externally visible behavior and denial scenarios.
+- [x] Create tooling-only `adopt-openspec-workflow` proposal, design, tasks and `skip_specs: true`.
+- [x] Validate and archive only after the implementation and tests are complete.
 
 ## Task 3: Developer experience and CI
 
 **Files:** `README.md`, `Makefile`, `.github/workflows/ci.yml`.
 
-- [ ] Document Codex/Cursor usage, lifecycle and difference between CLI and AI commands.
-- [ ] Add `make spec-check` using pinned OpenSpec CLI.
-- [ ] Run actual OpenSpec validation locally, inspect status/archives, and add equivalent CI checks.
-- [ ] Verify no production files were changed; open a focused GitHub PR.
+- [x] Document Codex/Cursor usage, lifecycle and difference between CLI and AI commands.
+- [x] Add `make spec-check` using pinned OpenSpec CLI.
+- [x] Run actual OpenSpec validation locally, inspect status/archives, and add equivalent CI checks.
+- [x] Verify no production files were changed; open a focused GitHub PR.
