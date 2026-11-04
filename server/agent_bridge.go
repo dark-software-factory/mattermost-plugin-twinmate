@@ -90,6 +90,9 @@ func (b MattermostBridge) List(owner,postID,direction,scope string,limit int) (M
 	if (direction!="before" && direction!="after") || (scope!="channel" && scope!="thread") || limit<1 || limit>50 {return MessagePage{},ErrAgentBadInput}
 	anchor,err:=b.readablePost(owner,postID)
 	if err!=nil {return MessagePage{},err}
+	if scope=="thread" && direction=="before" && anchor.RootId=="" {
+		return MessagePage{ChannelID:anchor.ChannelId,AnchorPostID:anchor.Id,Posts:[]ContextPost{}},nil
+	}
 	var list *model.PostList
 	var appErr *model.AppError
 	if scope=="thread" {

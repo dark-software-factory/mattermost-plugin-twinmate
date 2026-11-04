@@ -257,6 +257,15 @@ func TestThreadPaginationFailsAtFixedScanBudget(t *testing.T) {
 	}
 }
 
+func TestThreadHistoryBeforeRootIsEmptyWithoutScanningChannel(t *testing.T) {
+    root:=&model.Post{Id:examplePostID,ChannelId:"public",CreateAt:100}
+    f:=&fakeMattermostBridgeAPI{post:root,owner:&model.User{Id:"misha"},channel:&model.Channel{Id:"public",Type:model.ChannelTypeOpen},allowRead:true}
+    page,err:=(MattermostBridge{API:f}).List("misha",examplePostID,"before","thread",20)
+    if err!=nil || len(page.Posts)!=0 || page.HasMore || f.beforeCalls!=0 || f.threadCalls!=0 {
+        t.Fatalf("root has no earlier thread posts: %+v err=%v scans=%d",page,err,f.beforeCalls)
+    }
+}
+
 func TestPersistedTwinmateLabelIsLanguageNeutral(t *testing.T) {
 	if !strings.Contains(twinmateLabel,"AI-generated") || strings.Contains(twinmateLabel,"двойник") {t.Fatalf("mobile-visible label must work across language settings: %q",twinmateLabel)}
 }
