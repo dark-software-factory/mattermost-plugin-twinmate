@@ -1,11 +1,17 @@
 PLUGIN_ID := com.darksoftwarefactory.twinmate
 VERSION := 0.1.0
+OPENSPEC_VERSION := 1.16.0
+OPENSPEC := npm exec --yes --package=@fission-ai/openspec@$(OPENSPEC_VERSION) -- openspec
 
-.PHONY: test test-e2e build-server build-web bundle clean build-mcp
+.PHONY: test test-e2e spec-check build-server build-web bundle clean build-mcp
 
 test:
 	go test ./...
 	cd webapp && npm test
+
+spec-check:
+	OPENSPEC_TELEMETRY=0 OPENSPEC_NO_UPDATE_CHECK=1 $(OPENSPEC) validate --all --strict --no-interactive
+	OPENSPEC_TELEMETRY=0 OPENSPEC_NO_UPDATE_CHECK=1 $(OPENSPEC) validate --archived --no-interactive
 
 test-e2e:
 	npm ci --prefix webapp

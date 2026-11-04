@@ -16,6 +16,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Validate OpenSpec contracts and completed changes
+        run: make spec-check
       - name: Fetch Go dependencies
         run: go mod tidy
       - name: Test server

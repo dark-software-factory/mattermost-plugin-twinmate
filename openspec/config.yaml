@@ -1,0 +1,48 @@
+schema: spec-driven
+
+context: |
+  Twinmate is a preview Mattermost Server 11+ plugin written in Go, with a
+  React webapp and a standalone Go stdio MCP client for developer-owned agents.
+  A local agent initiates outbound HTTPS calls to Mattermost; only optional
+  automatic DM responses need an HTTPS endpoint reachable from Mattermost.
+  The personal Twinmate API token grants message reads and send-as-owner writes;
+  always enforce Mattermost permissions and preserve server-owned provenance.
+  AI-authored posts need a persistent label visible on native mobile clients;
+  a verified localized web post-header badge is supported from Mattermost 11.9.
+  Default to closed access: no automatic DM forwarding without explicit
+  per-conversation opt-in, and no private-network callbacks without admin opt-in.
+  Target Go standard-library style, avoid unnecessary runtime dependencies,
+  and preserve existing API compatibility unless the change says otherwise.
+  Test with go test ./..., npm test --prefix webapp, and the real Mattermost
+  11.0/11.11 Playwright + Testcontainers suite for integration-sensitive changes.
+  Treat docs/superpowers/ as historical design records, not current contracts;
+  the current behavioral source of truth is openspec/specs/.
+
+rules:
+  proposal:
+    - State the user problem and intended outcome, not just the implementation.
+    - Identify non-goals, compatibility impact, privacy/security risk, and rollback.
+  specs:
+    - Describe observable behavior using MUST/SHALL and GIVEN/WHEN/THEN scenarios.
+    - Cover successful and denied access for changes touching messages or tokens.
+    - Include mobile attribution, DM consent, and affected Mattermost versions when relevant.
+    - Preserve existing capability paths and full requirement text in MODIFIED deltas.
+  design:
+    - Explain the boundary between Mattermost Go plugin, webapp, and local MCP.
+    - Record permission checks, data ownership, trust boundaries, and failure paths.
+    - Name affected interfaces, test strategy, and compatibility constraints.
+  tasks:
+    - Include focused tests, Go/webapp checks, and E2E when behavior crosses boundaries.
+    - Keep items independently verifiable with checkboxes and specific file paths.
+
+operations:
+  apply:
+    guidance:
+      - Read the current capabilities and change artifacts before editing code.
+      - Run focused tests before the full suite and keep tasks.md up to date.
+      - If behavior changes while implementing, revise the delta specs and design.
+  archive:
+    guidance:
+      - Archive only after implementation and tests are verified.
+      - Sync changed requirements to openspec/specs/ as part of the same PR.
+      - Keep historical change artifacts and never rewrite archived decisions.

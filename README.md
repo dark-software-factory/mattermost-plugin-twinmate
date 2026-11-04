@@ -141,7 +141,23 @@ Return `{"reply":""}` when the agent chooses not to speak. Calls time out after 
 
 ## Development
 
-The [original DM design](docs/superpowers/specs/2026-11-03-twinmate-mvp-design.md) and [agent-initiated API design](docs/superpowers/specs/2026-11-03-twinmate-agent-api-design.md), with their implementation plans, capture current decisions and tradeoffs.
+### Spec-driven development with OpenSpec
+
+Twinmate uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) to make behavior changes reviewable **before** agents edit the Go server, local MCP or webapp. The current contracts live in [`openspec/specs/`](openspec/specs/): `agent-access`, `automatic-dm`, and `ai-attribution`. Previous [`docs/superpowers/`](docs/superpowers/) designs are historical notes, not competing current specs.
+
+OpenSpec is a **development-time** tool; the plugin and MCP client do not run Node.js. Install OpenSpec 1.16.0 using Node.js 22.12+ (`npm install -g @fission-ai/openspec@1.16.0`) or the official standalone installer. The repository already includes the generated workflows for Codex and Cursor, so teammates do not need to re-run `openspec init` after cloning.
+
+For each feature or behavior-changing fix:
+
+1. **Explore** the idea and read affected specs. This step is optional when the change is already clear.
+2. **Propose:** in Codex use `$openspec-propose add-feature`; in Cursor use `/opsx-propose add-feature`. Review the generated `openspec/changes/add-feature/proposal.md`, delta `specs/`, `design.md`, and `tasks.md`. For a pure tooling-only change, declare `skip_specs: true` in `.openspec.yaml` instead of inventing a product requirement.
+3. **Apply:** use `$openspec-apply-change` (Codex) or `/opsx-apply` (Cursor). Implement against the approved requirements and tick completed tasks; update the artifacts when discoveries change the decision.
+4. **Verify:** run `make spec-check`, `make test`, and for Mattermost/API/UI integration changes `make test-e2e` (Docker required). OpenSpec validation verifies artifact structure, **not** code/spec equivalence; existing tests and human review remain mandatory.
+5. **Sync + archive** after tests pass, on the feature branch before merging its PR: `$openspec-archive-change` (Codex) or `/opsx-archive` (Cursor). The archive updates `openspec/specs/` with accepted deltas and records the completed proposal/design/tasks in `openspec/changes/archive/`.
+
+`make spec-check` uses pinned OpenSpec 1.16.0 via `npm exec` (so it also works without a global install) and runs both `openspec validate --all --strict` and `openspec validate --archived`. GitHub CI runs the same check for every PR. The default `core` profile also includes update and sync workflows; Codex's generated skills are in `.agents/skills/` and Cursor's commands are in `.cursor/commands/`.
+
+The [original DM design](docs/superpowers/specs/2026-11-03-twinmate-mvp-design.md) and [agent-initiated API design](docs/superpowers/specs/2026-11-03-twinmate-agent-api-design.md), with their implementation plans, remain useful for historical tradeoffs.
 
 ### Full integration tests
 
