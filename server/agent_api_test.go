@@ -128,7 +128,7 @@ func TestAgentKeyDefaultsToReadOnly(t *testing.T) {
 func TestAgentTokenChannelScopeDeniesReadsAndWritesOutsideAllowlist(t *testing.T) {
     b:=&fakeAgentBridge{}
     tokens:=&TokenManager{Store:&memoryTokenKV{data:map[string][]byte{}}}
-    token,err:=tokens.RotateScoped("misha",true,[]string{"allowed-channel"})
+    token,err:=tokens.RotateScoped("misha",true,[]string{examplePostID})
     if err!=nil {t.Fatal(err)}
     h:=AgentHandler{Tokens:tokens,Bridge:b}
     request:=httptest.NewRequest(http.MethodGet,"/api/agent/posts/get?reference="+examplePostID,nil)
