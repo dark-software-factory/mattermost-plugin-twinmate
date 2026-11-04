@@ -53,6 +53,10 @@ test('real owner key can read, page and publish marked replies while outsiders a
         expect(created.props.twinmate).toMatchObject({generated: true, owner_id: misha.id});
         const proven = await requireOK(await petya.get(`${pluginBase}/api/provenance?post_id=${created.id}`), 'verify AI provenance');
         expect(proven.verified).toBe(true);
+        const stripped = await misha.put(`/api/v4/posts/${created.id}`, {data: {id: created.id, message: 'Pretend this was written by a person'}});
+        expect(stripped.ok()).toBe(false);
+        const unchanged = await requireOK(await misha.get(`/api/v4/posts/${created.id}`), 'read protected AI marker after rejected edit');
+        expect(unchanged.message).toContain('Twinmate · AI-generated');
 
         const illegal = await agentCall(server, outsiderKey, 'POST', '/messages', {channel_id: channel.id, message: 'I should not be here'});
         expect(illegal.status).toBe(403);

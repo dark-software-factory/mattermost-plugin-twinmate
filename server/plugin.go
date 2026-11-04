@@ -33,21 +33,6 @@ func postMatchesProvenance(post *model.Post, origin storedPostProvenance) bool {
 		strings.HasPrefix(post.Message, twinmateLabel)
 }
 
-// Post props are writable by clients, so they are never authorization or
-// provenance evidence. The stored text prefix is a loop-safety fallback.
-func shouldProcessPost(post *model.Post, author *model.User) bool {
-	if post == nil || post.UserId == "" || post.ChannelId == "" || strings.TrimSpace(post.Message) == "" || post.Type != "" {
-		return false
-	}
-	if strings.HasPrefix(post.Message, twinmateLabel) {
-		return false
-	}
-	if post.GetProp("from_webhook") == "true" {
-		return false
-	}
-	return author == nil || !author.IsBot
-}
-
 type Plugin struct {
 	plugin.MattermostPlugin
 	allowPrivate atomic.Bool
@@ -60,6 +45,8 @@ func pendingTwinKey(post *model.Post) string {
 	return post.UserId+"\x00"+post.ChannelId+"\x00"+post.RootId+"\x00"+post.Message
 }
 
+// Client-writable props and an arbitrary emoji prefix cannot prove provenance.
+// A server-created post is suppressed while publishing and thereafter by KV.
 func (p *Plugin) shouldProcessPost(post *model.Post, author *model.User) bool {
 	if post==nil || post.UserId=="" || post.ChannelId=="" || strings.TrimSpace(post.Message)=="" || post.Type!="" || (author!=nil && (author.IsBot || author.DeleteAt!=0)) {return false}
 	if post.GetProp("from_webhook")=="true" {return false}
@@ -94,7 +81,6 @@ func (p *Plugin) OnConfigurationChange() error {
 	if err := p.API.LoadPluginConfiguration(&config); err != nil {
 		return err
 	}
-	p.allowPrivate.Store(config.AllowPrivateEndpoints)
 	approved := make([]string,0)
 	for _,entry := range strings.FieldsFunc(config.AllowedPrivateHosts,func(c rune)bool {return c==',' || c=='\n'}) {
 		entry = strings.TrimSpace(entry)
@@ -105,6 +91,7 @@ func (p *Plugin) OnConfigurationChange() error {
 		approved=append(approved,net.JoinHostPort(strings.ToLower(host),port))
 	}
 	p.privateHosts.Store(approved)
+	p.allowPrivate.Store(config.AllowPrivateEndpoints)
 	return nil
 }
 
@@ -194,7 +181,7 @@ func (p *Plugin) Recipient(_ context.Context, channelID, senderID string) (strin
 		return "", nil
 	}
 	user,appErr:=p.API.GetUser(other)
-	if appErr!=nil || user==nil || user.DeleteAt!=0 || user.IsBot || !p.API.HasPermissionToChannel(other,channelID,model.PermissionReadChannel) {
+	if appErr!=nil || user==nil || user.DeleteAt!=0 || user.IsBot || !p.API.HasPermissionToChannel(other,channelID,model.PermissionReadChannel) || !p.API.HasPermissionToChannel(other,channelID,model.PermissionCreatePost) {
 		return "",nil
 	}
 	return other, nil

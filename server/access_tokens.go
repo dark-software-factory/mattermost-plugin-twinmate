@@ -16,6 +16,7 @@ import (
 )
 
 var ErrInvalidAgentToken = errors.New("invalid or revoked Twinmate agent token")
+var ErrInvalidTokenScope = errors.New("invalid Twinmate agent token scope")
 
 type AccessTokenStore interface {
 	Load(key string) ([]byte, error)
@@ -54,11 +55,11 @@ func (m *TokenManager) Rotate(owner string) (string, error) {
 
 func (m *TokenManager) RotateScoped(owner string, allowSend bool, channelIDs []string) (string, error) {
 	if owner == "" { return "", errors.New("owner required") }
-	if len(channelIDs)>32 {return "",errors.New("at most 32 channel IDs allowed")}
+	if len(channelIDs)>32 {return "",fmt.Errorf("%w: at most 32 channel IDs allowed",ErrInvalidTokenScope)}
 	unique:=make(map[string]struct{},len(channelIDs))
 	for _,id:=range channelIDs {
-		if !model.IsValidId(id) {return "",errors.New("invalid channel ID")}
-		if _,exists:=unique[id];exists {return "",errors.New("duplicate channel ID")}
+		if !model.IsValidId(id) {return "",fmt.Errorf("%w: invalid channel ID",ErrInvalidTokenScope)}
+		if _,exists:=unique[id];exists {return "",fmt.Errorf("%w: duplicate channel ID",ErrInvalidTokenScope)}
 		unique[id]=struct{}{}
 	}
 	idBytes := make([]byte, 12)
@@ -181,7 +182,7 @@ func (h TokenSettingsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		var trailing any
 		if err:=dec.Decode(&trailing);err!=io.EOF {http.Error(w,`{"error":"invalid token scope"}`,http.StatusBadRequest);return}
 		token, err := h.Manager.RotateScoped(owner,options.AllowSend,options.ChannelIDs)
-		if err!=nil {http.Error(w, `{"error":"invalid token scope"}`, http.StatusBadRequest);return}
+		if errors.Is(err,ErrInvalidTokenScope) {http.Error(w, `{"error":"invalid token scope"}`, http.StatusBadRequest);return}
 		if err != nil { http.Error(w, `{"error":"cannot issue token"}`, http.StatusInternalServerError); return }
 		_ = json.NewEncoder(w).Encode(struct { Token string `json:"token"` }{token})
 	case http.MethodDelete:

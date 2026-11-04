@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -42,6 +43,20 @@ func TestTokenManagerRejectsCorruptOrForgedTokens(t *testing.T) {
 	}
 }
 
+func TestPreScopeTokensRemainUsableUntilRotation(t *testing.T) {
+    store:=&memoryTokenKV{data:map[string][]byte{}}
+    manager:=&TokenManager{Store:store}
+    token,err:=manager.Rotate("misha")
+    if err!=nil {t.Fatal(err)}
+    id:=strings.Split(token,"_")[1]
+    var original storedAgentToken
+    if err:=json.Unmarshal(store.data[agentTokenKey(id)],&original);err!=nil {t.Fatal(err)}
+    legacy,_:=json.Marshal(storedAgentToken{OwnerID:original.OwnerID,Digest:original.Digest})
+    store.data[agentTokenKey(id)]=legacy
+    claims,err:=manager.AuthenticateClaims(token)
+    if err!=nil || !claims.AllowSend || !claims.AllowsChannel("any-channel") {t.Fatalf("legacy key unexpectedly lost capabilities: %+v %v",claims,err)}
+}
+
 func TestUserTokenAPIRequiresSessionAndNeverReturnsSecretOnGET(t *testing.T) {
 	manager:=&TokenManager{Store:&memoryTokenKV{data:map[string][]byte{}}}
 	h:=TokenSettingsHandler{Manager:manager}
@@ -67,4 +82,19 @@ func TestUserTokenAPIRequiresSessionAndNeverReturnsSecretOnGET(t *testing.T) {
 	deleted:=httptest.NewRecorder()
 	h.ServeHTTP(deleted,revoke)
 	if deleted.Code!=http.StatusOK {t.Fatalf("cannot revoke: %d",deleted.Code)}
+}
+
+type failedTokenStore struct{}
+func (failedTokenStore) Load(string)([]byte,error) {return nil,nil}
+func (failedTokenStore) Save(string,[]byte)error {return errors.New("storage offline")}
+func (failedTokenStore) Remove(string)error {return nil}
+
+func TestTokenIssuanceStorageFailureIsServerError(t *testing.T) {
+    h:=TokenSettingsHandler{Manager:&TokenManager{Store:failedTokenStore{}}}
+    req:=httptest.NewRequest(http.MethodPost,"/api/agent/token",strings.NewReader(`{"allow_send":true}`))
+    req.Header.Set("Mattermost-User-Id","owner")
+    req.Header.Set("Content-Type","application/json")
+    result:=httptest.NewRecorder()
+    h.ServeHTTP(result,req)
+    if result.Code!=http.StatusInternalServerError {t.Fatalf("storage outage reported as caller error: %d",result.Code)}
 }

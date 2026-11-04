@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"encoding/json"
 
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/mattermost/mattermost/server/public/plugin"
@@ -57,32 +58,37 @@ func TestVerifiedBadgeUsesReadPermissionForOpenChannels(t *testing.T) {
 }
 
 func TestOnlyHumanPostsAreForwarded(t *testing.T) {
+	origin,_:=json.Marshal(storedPostProvenance{OwnerID:"person",ChannelID:"dm"})
+	p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:&perPostProvenanceAPI{records:map[string][]byte{"provenance:twin-1":origin}}}}
 	human := &model.User{IsBot: false}
 	bot := &model.User{IsBot: true}
 	plain := &model.Post{Id: "human-1", UserId: "person", ChannelId: "dm", Message: "Hello"}
-	if !shouldProcessPost(plain, human) {
+	if !p.shouldProcessPost(plain, human) {
 		t.Fatal("human DM must be forwarded")
 	}
-	if shouldProcessPost(plain, bot) {
+	if p.shouldProcessPost(plain, bot) {
 		t.Fatal("bot message must not be sent to personal agents")
 	}
 	system := &model.Post{Id: "system-1", UserId: "person", ChannelId: "dm", Type: "system_join_channel", Message: "Hello"}
-	if shouldProcessPost(system, human) {
+	if p.shouldProcessPost(system, human) {
 		t.Fatal("system messages must not be sent")
 	}
 	generated := &model.Post{Id: "twin-1", UserId: "person", ChannelId: "dm", Message: twinmateLabel + "AI reply"}
-	if shouldProcessPost(generated, human) {
+	if p.shouldProcessPost(generated, human) {
 		t.Fatal("Twinmate replies must not recursively trigger agents")
 	}
 	forgedProps := &model.Post{Id: "human-2", UserId: "person", ChannelId: "dm", Message: "Human text", Props: model.StringInterface{"twinmate": map[string]any{"generated": true}}}
-	if !shouldProcessPost(forgedProps, human) {
+	if !p.shouldProcessPost(forgedProps, human) {
 		t.Fatal("client-supplied props are not trusted provenance")
 	}
 	webhook := &model.Post{Id: "webhook-1", UserId: "person", ChannelId: "dm", Message: "Webhook notification", Props: model.StringInterface{"from_webhook": "true"}}
-	if shouldProcessPost(webhook, human) {
+	if p.shouldProcessPost(webhook, human) {
 		t.Fatal("integration-originated webhook posts must not trigger personal agents")
 	}
 }
+
+type perPostProvenanceAPI struct {plugin.API; records map[string][]byte}
+func (f *perPostProvenanceAPI) KVGet(key string)([]byte,*model.AppError) {return f.records[key],nil}
 
 func TestHumanTextMimickingLabelIsNotTrustedAsProvenance(t *testing.T) {
     p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:&openChannelProvenanceAPI{readable:true}}}
