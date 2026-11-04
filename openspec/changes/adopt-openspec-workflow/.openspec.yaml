@@ -1,0 +1,5 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-04
+goal: Version and validate behavioral specifications and enable Codex/Cursor
+  spec-driven changes
