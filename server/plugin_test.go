@@ -21,6 +21,7 @@ func (f *provenanceWriteFailureAPI) CreatePost(post *model.Post)(*model.Post,*mo
 func (f *provenanceWriteFailureAPI) KVSet(string,[]byte)*model.AppError {
 	return &model.AppError{Message:"temporary storage failure"}
 }
+func (f *provenanceWriteFailureAPI) KVGet(string)([]byte,*model.AppError) {return nil,nil}
 func (f *provenanceWriteFailureAPI) LogError(string,...any) {f.logged=true}
 
 func TestPublishedPostIsNotReportedAsFailedWhenOnlyBadgeProvenanceFails(t *testing.T) {
@@ -30,6 +31,17 @@ func TestPublishedPostIsNotReportedAsFailedWhenOnlyBadgeProvenanceFails(t *testi
 	if err!=nil || id!="created-once" || api.created!=1 || !api.logged {
 		t.Fatalf("published post could be duplicated on retry: %q %v, created=%d logged=%t",id,err,api.created,api.logged)
 	}
+}
+
+func TestFailedProvenanceWriteCannotPermitAIAttributionRemoval(t *testing.T) {
+    api:=&provenanceWriteFailureAPI{}
+    p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:api}}
+    id,err:=p.createTwinPost("misha","channel","","work done","")
+    if err!=nil || id=="" {t.Fatalf("expected existing AI post: id=%q err=%v",id,err)}
+    oldPost:=&model.Post{Id:id,UserId:"misha",ChannelId:"channel",Message:twinmateLabel+"work done"}
+    edited:=&model.Post{Id:id,UserId:"misha",ChannelId:"channel",Message:"Pretend a human wrote it"}
+    _,reason:=p.MessageWillBeUpdated(nil,edited,oldPost)
+    if reason=="" {t.Fatal("provenance store outage allowed removal of existing AI marker")}
 }
 
 type openChannelProvenanceAPI struct {plugin.API; readable bool}
