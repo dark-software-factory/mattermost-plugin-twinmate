@@ -109,8 +109,8 @@ func TestGeneratedPostMarkerCannotBeEditedAway(t *testing.T) {
 
 type dmAuthorizationAPI struct {plugin.API; ownerDeleted,writeAllowed bool; posted bool}
 func (f *dmAuthorizationAPI) GetChannel(string)(*model.Channel,*model.AppError) {return &model.Channel{Id:"dm",Type:model.ChannelTypeDirect},nil}
-func (f *dmAuthorizationAPI) GetChannelMembers(string,int,int)([]*model.ChannelMember,*model.AppError) {
-    return []*model.ChannelMember{{UserId:"sender"},{UserId:"owner"}},nil
+func (f *dmAuthorizationAPI) GetChannelMembers(string,int,int)(model.ChannelMembers,*model.AppError) {
+    return model.ChannelMembers{{UserId:"sender"},{UserId:"owner"}},nil
 }
 func (f *dmAuthorizationAPI) GetUser(id string)(*model.User,*model.AppError) {
     u:=&model.User{Id:id}
