@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -40,7 +41,7 @@ func (b *fakeAgentBridge) Send(owner, channel, reply, text string) (string,error
 func authenticatedAgentHandler(t *testing.T,b *fakeAgentBridge) (AgentHandler,string) {
 	t.Helper()
 	tokens:=&TokenManager{Store:&memoryTokenKV{data:map[string][]byte{}}}
-	token,err:=tokens.Rotate("misha")
+	token,err:=tokens.RotateScoped("misha",true,nil)
 	if err!=nil {t.Fatal(err)}
 	return AgentHandler{Tokens:tokens,Bridge:b,SiteURL:"https://mm.example.com"},token
 }
@@ -108,6 +109,45 @@ func TestAgentSendDerivesOwnerFromToken(t *testing.T) {
 	if bad.Code!=http.StatusBadRequest {t.Fatalf("owner spoofing accepted: %d",bad.Code)}
 }
 
+func TestAgentKeyDefaultsToReadOnly(t *testing.T) {
+    b:=&fakeAgentBridge{}
+    tokens:=&TokenManager{Store:&memoryTokenKV{data:map[string][]byte{}}}
+    token,err:=tokens.Rotate("misha")
+    if err!=nil {t.Fatal(err)}
+    h:=AgentHandler{Tokens:tokens,Bridge:b}
+    request:=httptest.NewRequest(http.MethodPost,"/api/agent/messages",bytes.NewBufferString(`{"channel_id":"channel-1","message":"should not send"}`))
+    request.Header.Set("X-Twinmate-Token",token)
+    request.Header.Set("Content-Type","application/json")
+    response:=httptest.NewRecorder()
+    h.ServeHTTP(response,request)
+    if response.Code!=http.StatusForbidden || b.sendOwner!="" {
+        t.Fatalf("read-only default token can impersonate its owner: %d %+v",response.Code,b)
+    }
+}
+
+func TestAgentTokenChannelScopeDeniesReadsAndWritesOutsideAllowlist(t *testing.T) {
+    b:=&fakeAgentBridge{}
+    tokens:=&TokenManager{Store:&memoryTokenKV{data:map[string][]byte{}}}
+    token,err:=tokens.RotateScoped("misha",true,[]string{examplePostID})
+    if err!=nil {t.Fatal(err)}
+    h:=AgentHandler{Tokens:tokens,Bridge:b}
+    request:=httptest.NewRequest(http.MethodGet,"/api/agent/posts/get?reference="+examplePostID,nil)
+    request.Header.Set("X-Twinmate-Token",token)
+    response:=httptest.NewRecorder()
+    h.ServeHTTP(response,request)
+    if response.Code!=http.StatusForbidden || !strings.Contains(response.Body.String(),"scope") {
+        t.Fatalf("out-of-scope read exposed data: %d %s",response.Code,response.Body.String())
+    }
+    send:=httptest.NewRequest(http.MethodPost,"/api/agent/messages",bytes.NewBufferString(`{"channel_id":"other-channel","message":"secret"}`))
+    send.Header.Set("X-Twinmate-Token",token)
+    send.Header.Set("Content-Type","application/json")
+    reply:=httptest.NewRecorder()
+    h.ServeHTTP(reply,send)
+    if reply.Code!=http.StatusForbidden || b.sendOwner!="" {
+        t.Fatalf("out-of-scope write created post: %d %+v",reply.Code,b)
+    }
+}
+
 func TestPostReferenceParserRestrictsMattermostOrigin(t *testing.T) {
 	for _,raw:=range []string{examplePostID,"https://mm.example.com/team/pl/"+examplePostID,"https://mm.example.com/team/channels/town?post_id="+examplePostID} {
 		id,err:=parsePostReference(raw,"https://mm.example.com")
@@ -125,12 +165,13 @@ type fakeMattermostBridgeAPI struct {
 	allowRead,allowWrite,member bool
 	thread *model.PostList
 	before,after *model.PostList
+	threadCalls, beforeCalls, afterCalls int
 }
 func (f *fakeMattermostBridgeAPI) GetUser(string)(*model.User,*model.AppError) {return f.owner,nil}
 func (f *fakeMattermostBridgeAPI) GetPost(string)(*model.Post,*model.AppError) {return f.post,nil}
-func (f *fakeMattermostBridgeAPI) GetPostThread(string)(*model.PostList,*model.AppError) {return f.thread,nil}
-func (f *fakeMattermostBridgeAPI) GetPostsBefore(string,string,int,int)(*model.PostList,*model.AppError) {return f.before,nil}
-func (f *fakeMattermostBridgeAPI) GetPostsAfter(string,string,int,int)(*model.PostList,*model.AppError) {return f.after,nil}
+func (f *fakeMattermostBridgeAPI) GetPostThread(string)(*model.PostList,*model.AppError) {f.threadCalls++;return f.thread,nil}
+func (f *fakeMattermostBridgeAPI) GetPostsBefore(string,string,int,int)(*model.PostList,*model.AppError) {f.beforeCalls++;return f.before,nil}
+func (f *fakeMattermostBridgeAPI) GetPostsAfter(string,string,int,int)(*model.PostList,*model.AppError) {f.afterCalls++;return f.after,nil}
 func (f *fakeMattermostBridgeAPI) GetChannel(string)(*model.Channel,*model.AppError) {return f.channel,nil}
 func (f *fakeMattermostBridgeAPI) GetChannelMember(string,string)(*model.ChannelMember,*model.AppError) {
 	if !f.member {return nil,&model.AppError{Message:"not a member"}}
@@ -190,12 +231,39 @@ func TestBridgePagesThreadWithoutGuessingAContextWindow(t *testing.T) {
 	other:=&model.Post{Id:"other-thread",ChannelId:"public",RootId:"other",Message:"irrelevant",CreateAt:105}
 	deleted:=&model.Post{Id:"deleted",ChannelId:"public",RootId:"root",Message:"deleted",DeleteAt:12,CreateAt:102}
 	f:=&fakeMattermostBridgeAPI{post:anchor,owner:&model.User{Id:"misha"},channel:&model.Channel{Id:"public",Type:model.ChannelTypeOpen},allowRead:true,
-		thread:&model.PostList{Order:[]string{"deleted","newer","anchor","near","root","old","other-thread"},Posts:map[string]*model.Post{"root":root,"anchor":anchor,"near":near,"old":old,"newer":newer,"deleted":deleted,"other-thread":other}}}
+		before:&model.PostList{Order:[]string{"near","root","old"},Posts:map[string]*model.Post{"root":root,"near":near,"old":old}},
+		after:&model.PostList{Order:[]string{"newer","deleted","other-thread"},Posts:map[string]*model.Post{"newer":newer,"deleted":deleted,"other-thread":other}}}
 	b:=MattermostBridge{API:f}
 	page,err:=b.List("misha",examplePostID,"before","thread",1)
 	if err!=nil || len(page.Posts)!=1 || page.Posts[0].ID!="near" || !page.HasMore || page.NextCursor!="near" {t.Fatalf("wrong before page: %+v %v",page,err)}
 	page,err=b.List("misha",examplePostID,"after","thread",2)
 	if err!=nil || len(page.Posts)!=1 || page.Posts[0].ID!="newer" || page.HasMore {t.Fatalf("wrong after page: %+v %v",page,err)}
+	if f.threadCalls!=0 {t.Fatal("unbounded GetPostThread was used")}
+}
+
+func TestThreadPaginationFailsAtFixedScanBudget(t *testing.T) {
+	anchor:=&model.Post{Id:examplePostID,ChannelId:"public",RootId:"root",CreateAt:10000}
+	batch:=&model.PostList{Order:make([]string,0,threadScanPageSize),Posts:map[string]*model.Post{}}
+	for i:=0;i<threadScanPageSize;i++ {
+		id:=fmt.Sprintf("other-%d",i)
+		batch.Order=append(batch.Order,id)
+		batch.Posts[id]=&model.Post{Id:id,ChannelId:"public",RootId:"unrelated",CreateAt:int64(i)}
+	}
+	f:=&fakeMattermostBridgeAPI{post:anchor,owner:&model.User{Id:"misha"},channel:&model.Channel{Id:"public",Type:model.ChannelTypeOpen},allowRead:true,before:batch}
+	b:=MattermostBridge{API:f}
+	_,err:=b.List("misha",examplePostID,"before","thread",50)
+	if !errors.Is(err,ErrAgentScanLimit) || f.beforeCalls!=threadScanMaxPages || f.threadCalls!=0 {
+		t.Fatalf("unbounded or inconclusive history read: err=%v pages=%d unbounded=%d",err,f.beforeCalls,f.threadCalls)
+	}
+}
+
+func TestThreadHistoryBeforeRootIsEmptyWithoutScanningChannel(t *testing.T) {
+    root:=&model.Post{Id:examplePostID,ChannelId:"public",CreateAt:100}
+    f:=&fakeMattermostBridgeAPI{post:root,owner:&model.User{Id:"misha"},channel:&model.Channel{Id:"public",Type:model.ChannelTypeOpen},allowRead:true}
+    page,err:=(MattermostBridge{API:f}).List("misha",examplePostID,"before","thread",20)
+    if err!=nil || len(page.Posts)!=0 || page.HasMore || f.beforeCalls!=0 || f.threadCalls!=0 {
+        t.Fatalf("root has no earlier thread posts: %+v err=%v scans=%d",page,err,f.beforeCalls)
+    }
 }
 
 func TestPersistedTwinmateLabelIsLanguageNeutral(t *testing.T) {

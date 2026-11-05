@@ -54,18 +54,30 @@ type Event struct {
 type Client struct {
 	HTTP         *http.Client
 	AllowPrivate bool
+	ApprovedHosts []string
 }
 
-func ValidateEndpoint(raw string, allowPrivate bool) error {
+// The administrator's global opt-in does not authorize arbitrary internal hosts.
+func approvedHost(host, port string, allowPrivate bool, approved []string) bool {
+	if !allowPrivate { return false }
+	if port == "" { port = "443" }
+	for _, candidate := range approved {
+		if strings.EqualFold(candidate, net.JoinHostPort(host, port)) { return true }
+	}
+	return false
+}
+
+func ValidateEndpoint(raw string, allowPrivate bool, approved ...string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Fragment != "" || u.Opaque != "" {
 		return errors.New("endpoint must be an absolute HTTPS URL without credentials or fragments")
 	}
 	host := strings.ToLower(u.Hostname())
-	if !allowPrivate && (host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local")) {
+	allowedPrivateHost := approvedHost(host, u.Port(), allowPrivate, approved)
+	if !allowedPrivateHost && (host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local")) {
 		return errors.New("private agent endpoints are disabled")
 	}
-	if ip := net.ParseIP(host); ip != nil && !allowPrivate && !allowedIP(ip) {
+	if ip := net.ParseIP(host); ip != nil && !allowedPrivateHost && !allowedIP(ip) {
 		return errors.New("private agent endpoints are disabled")
 	}
 	return nil
@@ -88,7 +100,7 @@ func allowedIP(ip net.IP) bool {
 	return true
 }
 
-func NewClient(allowPrivate bool) *Client {
+func NewClient(allowPrivate bool, approved ...string) *Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	// Avoid using a general-purpose proxy to bypass the address restrictions.
 	transport.Proxy = nil
@@ -102,18 +114,18 @@ func NewClient(allowPrivate bool) *Client {
 			return nil, err
 		}
 		for _, candidate := range ips {
-			if !allowPrivate && !allowedIP(candidate.IP) {
+			if !allowedIP(candidate.IP) && !approvedHost(host, port, allowPrivate, approved) {
 				continue
 			}
 			return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, net.JoinHostPort(candidate.IP.String(), port))
 		}
 		return nil, fmt.Errorf("no permitted address for agent host %q", host)
 	}
-	return &Client{HTTP: &http.Client{Timeout: 25 * time.Second, Transport: transport}, AllowPrivate: allowPrivate}
+	return &Client{HTTP: &http.Client{Timeout: 25 * time.Second, Transport: transport}, AllowPrivate: allowPrivate, ApprovedHosts: append([]string(nil),approved...)}
 }
 
 func (c *Client) Call(ctx context.Context, endpoint, bearer string, event Event) (string, error) {
-	if err := ValidateEndpoint(endpoint, c.AllowPrivate); err != nil {
+	if err := ValidateEndpoint(endpoint, c.AllowPrivate, c.ApprovedHosts...); err != nil {
 		return "", err
 	}
 	data, err := json.Marshal(event)
@@ -131,7 +143,7 @@ func (c *Client) Call(ctx context.Context, endpoint, bearer string, event Event)
 	}
 	client := c.HTTP
 	if client == nil {
-		client = NewClient(c.AllowPrivate).HTTP
+		client = NewClient(c.AllowPrivate, c.ApprovedHosts...).HTTP
 	}
 	// Even a caller-supplied test/client transport must never forward secrets
 	// to the Location of an HTTP redirect.

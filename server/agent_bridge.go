@@ -9,7 +9,6 @@ import (
 type MattermostAgentAPI interface {
 	GetUser(userID string) (*model.User,*model.AppError)
 	GetPost(id string) (*model.Post,*model.AppError)
-	GetPostThread(id string) (*model.PostList,*model.AppError)
 	GetPostsBefore(channelID,postID string,page,perPage int) (*model.PostList,*model.AppError)
 	GetPostsAfter(channelID,postID string,page,perPage int) (*model.PostList,*model.AppError)
 	GetChannel(id string) (*model.Channel,*model.AppError)
@@ -20,6 +19,39 @@ type MattermostAgentAPI interface {
 type MattermostBridge struct {
 	API MattermostAgentAPI
 	Publisher func(owner,channel,root,message string)(string,error)
+}
+
+const threadScanPageSize=100
+const threadScanMaxPages=5
+
+// Mattermost's plugin GetPostThread returns an entire thread without a page
+// limit. Scan bounded channel pages instead, and fail closed if a sparse thread
+// cannot be paginated truthfully within that fixed read budget.
+func (b MattermostBridge) boundedThreadPosts(anchor *model.Post,direction string,limit int) (*model.PostList,error) {
+	root:=anchor.RootId
+	if root=="" {root=anchor.Id}
+	collected:=&model.PostList{Order:[]string{},Posts:map[string]*model.Post{}}
+	for page:=0;page<threadScanMaxPages;page++ {
+		var batch *model.PostList
+		var appErr *model.AppError
+		if direction=="before" {batch,appErr=b.API.GetPostsBefore(anchor.ChannelId,anchor.Id,page,threadScanPageSize)} else {batch,appErr=b.API.GetPostsAfter(anchor.ChannelId,anchor.Id,page,threadScanPageSize)}
+		if appErr!=nil || batch==nil {return nil,ErrAgentNotFound}
+		for _,id:=range batch.Order {
+			post:=batch.Posts[id]
+			if post==nil {continue}
+			if _,found:=collected.Posts[id];found {continue}
+			collected.Posts[id]=post
+			collected.Order=append(collected.Order,id)
+		}
+		matches:=0
+		for _,post:=range sanitizePosts(collected) {
+			if post.ChannelID!=anchor.ChannelId || (post.ID!=root && post.RootID!=root) {continue}
+			if direction=="before" && (post.CreateAt<anchor.CreateAt || (post.CreateAt==anchor.CreateAt && post.ID<anchor.Id)) {matches++}
+			if direction=="after" && (post.CreateAt>anchor.CreateAt || (post.CreateAt==anchor.CreateAt && post.ID>anchor.Id)) {matches++}
+		}
+		if matches>limit || len(batch.Order)<threadScanPageSize {return collected,nil}
+	}
+	return nil,ErrAgentScanLimit
 }
 
 func (b MattermostBridge) canAccess(owner,channelID string,permission *model.Permission) bool {
@@ -58,12 +90,14 @@ func (b MattermostBridge) List(owner,postID,direction,scope string,limit int) (M
 	if (direction!="before" && direction!="after") || (scope!="channel" && scope!="thread") || limit<1 || limit>50 {return MessagePage{},ErrAgentBadInput}
 	anchor,err:=b.readablePost(owner,postID)
 	if err!=nil {return MessagePage{},err}
+	if scope=="thread" && direction=="before" && anchor.RootId=="" {
+		return MessagePage{ChannelID:anchor.ChannelId,AnchorPostID:anchor.Id,Posts:[]ContextPost{}},nil
+	}
 	var list *model.PostList
 	var appErr *model.AppError
 	if scope=="thread" {
-		root:=anchor.RootId
-		if root=="" {root=anchor.Id}
-		list,appErr=b.API.GetPostThread(root)
+		list,err=b.boundedThreadPosts(anchor,direction,limit)
+		if err!=nil {return MessagePage{},err}
 	} else if direction=="before" {
 		list,appErr=b.API.GetPostsBefore(anchor.ChannelId,anchor.Id,0,limit+1)
 	} else {

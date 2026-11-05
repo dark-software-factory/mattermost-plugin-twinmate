@@ -6,7 +6,7 @@ const messages = {
         badge: 'AI twin', badge_title: 'Sent by a personal AI twin, not typed by the person',
         menu: 'Twinmate · My digital twin', settings_title: 'Twinmate settings',
         access_title: 'OpenClaw / MCP agent access',
-        access_intro: 'Give your local agent a revocable Twinmate key to read linked Mattermost discussions and publish clearly marked AI messages where you have permission. Keep it secret.',
+        access_intro: 'Give your local agent a revocable key to read linked Mattermost discussions. Sending as you requires separate permission below. Keep the key secret.',
         generate_key: 'Generate agent key', rotate_key: 'Rotate agent key', revoke_key: 'Revoke key',
         one_time_key: 'One-time Twinmate agent key', copy: 'Copy token',
         automatic_title: 'Automatic DM replies (optional)',
@@ -29,7 +29,7 @@ const messages = {
         badge: 'ИИ-двойник', badge_title: 'Сообщение написал персональный ИИ-двойник, а не человек',
         menu: 'Twinmate · Мой цифровой двойник', settings_title: 'Настройки Twinmate',
         access_title: 'Доступ OpenClaw / MCP',
-        access_intro: 'Создайте отзывной ключ для локального агента. Он сможет читать обсуждения по ссылке и публиковать сообщения с отметкой ИИ от вашего имени в доступных каналах. Храните ключ в секрете.',
+        access_intro: 'Создайте отзывной ключ для локального агента. По умолчанию он сможет только читать доступные обсуждения. Отправку сообщений от вашего имени разрешите отдельно ниже. Храните ключ в секрете.',
         generate_key: 'Создать ключ агента', rotate_key: 'Перевыпустить ключ', revoke_key: 'Отозвать ключ',
         one_time_key: 'Ключ агента (показывается один раз)', copy: 'Скопировать ключ',
         automatic_title: 'Автоответы в личных сообщениях (необязательно)',
@@ -192,6 +192,24 @@ Object.assign(messages.uk, {
     saving:'Зберігаємо…',token_placeholder:'Залиште порожнім, щоб зберегти поточний токен',optional:'Необов’язково',
     host_changed:'Зміна хоста агента видаляє збережений токен. За потреби введіть новий.',
 });
+
+const scopeCopy = {
+    en: ['Allow this agent to send messages as me', 'Limit to channel IDs (comma-separated)', 'Empty = all channels I can access'],
+    ru: ['Разрешить агенту писать сообщения от моего имени', 'Ограничить ID каналов (через запятую)', 'Пусто = все доступные мне каналы'],
+    de: ['Agent darf Nachrichten in meinem Namen senden', 'Auf Kanal-IDs beschränken (kommagetrennt)', 'Leer = alle für mich zugänglichen Kanäle'],
+    fr: ['Autoriser cet agent à envoyer des messages en mon nom', 'Limiter aux ID des canaux (virgules)', 'Vide = tous mes canaux accessibles'],
+    es: ['Permitir que el agente envíe mensajes en mi nombre', 'Limitar a IDs de canales (separadas por comas)', 'Vacío = todos mis canales accesibles'],
+    'pt-BR': ['Permitir que o agente envie mensagens em meu nome', 'Limitar a IDs de canais (separados por vírgula)', 'Vazio = todos os canais a que tenho acesso'],
+    it: ['Consenti all’agente di inviare messaggi a mio nome', 'Limita agli ID dei canali (separati da virgole)', 'Vuoto = tutti i canali a cui ho accesso'],
+    nl: ['Agent mag namens mij berichten sturen', 'Beperk tot kanaal-ID’s (komma’s)', 'Leeg = alle kanalen waar ik toegang toe heb'],
+    ja: ['エージェントが自分の名前で投稿することを許可', 'チャンネル ID を制限（カンマ区切り）', '空欄 = 自分がアクセスできるすべてのチャンネル'],
+    ko: ['에이전트가 내 이름으로 메시지 보내기 허용', '채널 ID 제한 (쉼표로 구분)', '비워 두면 접근 가능한 모든 채널'],
+    'zh-CN': ['允许代理以我的身份发送消息', '限制频道 ID（以逗号分隔）', '留空 = 我可访问的全部频道'],
+    uk: ['Дозволити агенту писати повідомлення від мого імені', 'Обмежити ID каналів (через кому)', 'Порожньо = усі доступні мені канали'],
+};
+for (const [locale, [agent_send_scope, agent_channel_scope, agent_channel_scope_hint]] of Object.entries(scopeCopy)) {
+    Object.assign(messages[locale], {agent_send_scope, agent_channel_scope, agent_channel_scope_hint});
+}
 
 function normalize(locale) {
     const raw = String(locale || 'en').replace('_', '-').toLowerCase();

@@ -53,6 +53,10 @@ test('real owner key can read, page and publish marked replies while outsiders a
         expect(created.props.twinmate).toMatchObject({generated: true, owner_id: misha.id});
         const proven = await requireOK(await petya.get(`${pluginBase}/api/provenance?post_id=${created.id}`), 'verify AI provenance');
         expect(proven.verified).toBe(true);
+        const stripped = await misha.put(`/api/v4/posts/${created.id}`, {data: {id: created.id, message: 'Pretend this was written by a person'}});
+        expect(stripped.ok()).toBe(false);
+        const unchanged = await requireOK(await misha.get(`/api/v4/posts/${created.id}`), 'read protected AI marker after rejected edit');
+        expect(unchanged.message).toContain('Twinmate · AI-generated');
 
         const illegal = await agentCall(server, outsiderKey, 'POST', '/messages', {channel_id: channel.id, message: 'I should not be here'});
         expect(illegal.status).toBe(403);
@@ -84,8 +88,31 @@ test('token status, CSRF session, rotation and revocation use real Mattermost au
         const revoked = await agentCall(server, second, 'GET', '/posts/get?reference=invalid');
         expect(revoked.status).toBe(401);
         const statusAfter = await requireOK(await user.get(`${pluginBase}/api/agent/token`), 'token status after revocation');
-        expect(statusAfter).toEqual({has_token: false});
+        expect(statusAfter).toMatchObject({has_token: false, allow_send: false});
     } finally {await user.dispose();}
+});
+
+test('new read-only keys cannot send and channel-scoped keys cannot escape their scope', async ({server}) => {
+    const [admin, misha] = await Promise.all(['admin','misha'].map((name) => getSession(server,name)));
+    try {
+        const team=await getTeam(admin);
+        const allowed=await makeChannel(admin,team.id,'P');
+        const other=await makeChannel(admin,team.id,'P');
+        await addMember(admin,allowed.id,misha.id);
+        await addMember(admin,other.id,misha.id);
+        const secret=await sendPost(misha,other.id,'outside token scope');
+        const readOnly=await issueKey(misha,{});
+        const deniedSend=await agentCall(server,readOnly,'POST','/messages',{channel_id:allowed.id,message:'must be denied'});
+        expect(deniedSend.status).toBe(403);
+        const scoped=await issueKey(misha,{allow_send:true,channel_ids:[allowed.id]});
+        const deniedRead=await agentCall(server,scoped,'GET',`/posts/get?reference=${secret.id}`);
+        expect(deniedRead.status).toBe(403);
+        expect(JSON.stringify(deniedRead.body)).not.toContain('outside token scope');
+        const deniedWrite=await agentCall(server,scoped,'POST','/messages',{channel_id:other.id,message:'must be denied too'});
+        expect(deniedWrite.status).toBe(403);
+        const permitted=await agentCall(server,scoped,'POST','/messages',{channel_id:allowed.id,message:'approved generated result'});
+        expect(permitted.status).toBe(201);
+    } finally {await Promise.all([admin,misha].map((s)=>s.dispose()));}
 });
 
 test('thread scope returns only replies to the selected root', async ({server}) => {

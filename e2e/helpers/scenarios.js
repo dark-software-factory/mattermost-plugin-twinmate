@@ -23,8 +23,8 @@ async function sendPost(actor, channelID, message, rootID = '') {
     return requireOK(await actor.post('/api/v4/posts', {data: {channel_id: channelID, message, ...(rootID ? {root_id: rootID} : {})}}), 'create E2E post');
 }
 
-async function issueKey(owner) {
-    const response = await owner.post(`${pluginBase}/api/agent/token`, {data: {}});
+async function issueKey(owner, options = {allow_send: true}) {
+    const response = await owner.post(`${pluginBase}/api/agent/token`, {data: options});
     const issued = await requireOK(response, 'issue per-user Twinmate agent key');
     if (!issued.token?.startsWith('tmt_')) {throw new Error('Mattermost returned no usable Twinmate key');}
     return issued.token;

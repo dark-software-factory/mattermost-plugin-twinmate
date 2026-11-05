@@ -36,6 +36,8 @@ test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified re
             data: {team_id: team.id, channel_id: dm.id, command: '/twinmate on'},
         });
         expect(optIn.status(), await optIn.text()).toBe(200);
+        const visible = await requireOK(await petya.get(`/api/v4/channels/${dm.id}/posts?per_page=30`), 'read DM disclosure');
+        expect(Object.values(visible.posts).some((post) => post.user_id === misha.id && post.message.includes('Twinmate notice') && post.message.includes('outside Mattermost'))).toBe(true);
 
         const trigger = await sendPost(petya, dm.id, 'Please investigate the broken migration');
         const outsiderKey = await issueKey(outsider);
@@ -75,6 +77,38 @@ test('real one-to-one DM opt-in invokes the HTTPS agent, publishes a verified re
         await new Promise((resolve) => setTimeout(resolve, 2_500));
         const after = await requireOK(await request.get(`${server.agentStatusURL}/`), 'inspect after opt-out');
         expect(after.events).toHaveLength(before.events.length + 1);
+
+        // A notice is a normal Mattermost post that its author can edit or
+        // delete. Forwarding must cease if that public disclosure disappears.
+        await requireOK(await misha.post('/api/v4/commands/execute', {
+            data: {team_id: team.id, channel_id: dm.id, command: '/twinmate on'},
+        }), 're-enable forwarding for disclosure-integrity test');
+        const noticesBeforeEdit = await requireOK(await misha.get(`/api/v4/channels/${dm.id}/posts?per_page=100`), 'find re-enabled disclosure');
+        const notice = Object.values(noticesBeforeEdit.posts).filter((post) => post.user_id === misha.id && post.message.includes('Twinmate notice')).sort((a, b) => b.create_at - a.create_at)[0];
+        expect(notice).toBeTruthy();
+        const editedNotice = await misha.put(`/api/v4/posts/${notice.id}`, {data: {id: notice.id, message: 'No AI disclosure is visible here'}});
+        expect(editedNotice.status(), await editedNotice.text()).toBe(200);
+        await sendPost(petya, dm.id, 'Private text after edited disclosure');
+        await new Promise((resolve) => setTimeout(resolve, 2_500));
+        const afterEdit = await requireOK(await request.get(`${server.agentStatusURL}/`), 'inspect after edited disclosure');
+        expect(afterEdit.events).toHaveLength(before.events.length + 1);
+
+        await requireOK(await misha.post('/api/v4/commands/execute', {
+            data: {team_id: team.id, channel_id: dm.id, command: '/twinmate off'},
+        }), 'reset after edited notice');
+        await requireOK(await misha.post('/api/v4/commands/execute', {
+            data: {team_id: team.id, channel_id: dm.id, command: '/twinmate on'},
+        }), 're-enable forwarding for deleted disclosure');
+        const noticesBeforeDelete = await requireOK(await misha.get(`/api/v4/channels/${dm.id}/posts?per_page=100`), 'find new disclosure');
+        const current = Object.values(noticesBeforeDelete.posts).filter((post) => post.user_id === misha.id && post.message.includes('Twinmate notice')).sort((a, b) => b.create_at - a.create_at)[0];
+        expect(current).toBeTruthy();
+        expect(current.id).not.toBe(notice.id);
+        const removed = await misha.delete(`/api/v4/posts/${current.id}`);
+        expect(removed.status(), await removed.text()).toBe(200);
+        await sendPost(petya, dm.id, 'Private text after deleted disclosure');
+        await new Promise((resolve) => setTimeout(resolve, 2_500));
+        const afterDelete = await requireOK(await request.get(`${server.agentStatusURL}/`), 'inspect after deleted disclosure');
+        expect(afterDelete.events).toHaveLength(before.events.length + 1);
     } finally {
         await Promise.all([misha.dispose(), petya.dispose(), outsider.dispose()]);
     }

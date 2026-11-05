@@ -20,10 +20,17 @@ test('token rotation requires JSON and retrieves the one-time secret', async () 
     const token = await rotateAgentToken(async (_, options) => {
         assert.equal(options.method, 'POST');
         assert.equal(options.headers['Content-Type'], 'application/json');
-        assert.equal(options.body, '{}');
+        assert.equal(options.body, '{"allow_send":false,"channel_ids":[]}');
         return {ok: true, json: async () => ({token: 'tmt_secret'})};
     });
     assert.equal(token, 'tmt_secret');
+});
+
+test('token issuance sends requested immutable scopes', async () => {
+    await rotateAgentToken(async (_, options) => {
+        assert.deepEqual(JSON.parse(options.body), {allow_send: true, channel_ids: ['abcdefghijklmnopqrstuvwx12']});
+        return {ok: true, json: async () => ({token: 'tmt_scoped'})};
+    }, {allow_send: true, channel_ids: ['abcdefghijklmnopqrstuvwx12']});
 });
 
 test('session-authenticated rotate includes the real MMCSRF header', async () => {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"encoding/json"
 
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/mattermost/mattermost/server/public/plugin"
@@ -20,6 +21,7 @@ func (f *provenanceWriteFailureAPI) CreatePost(post *model.Post)(*model.Post,*mo
 func (f *provenanceWriteFailureAPI) KVSet(string,[]byte)*model.AppError {
 	return &model.AppError{Message:"temporary storage failure"}
 }
+func (f *provenanceWriteFailureAPI) KVGet(string)([]byte,*model.AppError) {return nil,nil}
 func (f *provenanceWriteFailureAPI) LogError(string,...any) {f.logged=true}
 
 func TestPublishedPostIsNotReportedAsFailedWhenOnlyBadgeProvenanceFails(t *testing.T) {
@@ -29,6 +31,17 @@ func TestPublishedPostIsNotReportedAsFailedWhenOnlyBadgeProvenanceFails(t *testi
 	if err!=nil || id!="created-once" || api.created!=1 || !api.logged {
 		t.Fatalf("published post could be duplicated on retry: %q %v, created=%d logged=%t",id,err,api.created,api.logged)
 	}
+}
+
+func TestFailedProvenanceWriteCannotPermitAIAttributionRemoval(t *testing.T) {
+    api:=&provenanceWriteFailureAPI{}
+    p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:api}}
+    id,err:=p.createTwinPost("misha","channel","","work done","")
+    if err!=nil || id=="" {t.Fatalf("expected existing AI post: id=%q err=%v",id,err)}
+    oldPost:=&model.Post{Id:id,UserId:"misha",ChannelId:"channel",Message:twinmateLabel+"work done"}
+    edited:=&model.Post{Id:id,UserId:"misha",ChannelId:"channel",Message:"Pretend a human wrote it"}
+    _,reason:=p.MessageWillBeUpdated(nil,edited,oldPost)
+    if reason=="" {t.Fatal("provenance store outage allowed removal of existing AI marker")}
 }
 
 type openChannelProvenanceAPI struct {plugin.API; readable bool}
@@ -57,31 +70,97 @@ func TestVerifiedBadgeUsesReadPermissionForOpenChannels(t *testing.T) {
 }
 
 func TestOnlyHumanPostsAreForwarded(t *testing.T) {
+	origin,_:=json.Marshal(storedPostProvenance{OwnerID:"person",ChannelID:"dm"})
+	p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:&perPostProvenanceAPI{records:map[string][]byte{"provenance:twin-1":origin}}}}
 	human := &model.User{IsBot: false}
 	bot := &model.User{IsBot: true}
 	plain := &model.Post{Id: "human-1", UserId: "person", ChannelId: "dm", Message: "Hello"}
-	if !shouldProcessPost(plain, human) {
+	if !p.shouldProcessPost(plain, human) {
 		t.Fatal("human DM must be forwarded")
 	}
-	if shouldProcessPost(plain, bot) {
+	if p.shouldProcessPost(plain, bot) {
 		t.Fatal("bot message must not be sent to personal agents")
 	}
 	system := &model.Post{Id: "system-1", UserId: "person", ChannelId: "dm", Type: "system_join_channel", Message: "Hello"}
-	if shouldProcessPost(system, human) {
+	if p.shouldProcessPost(system, human) {
 		t.Fatal("system messages must not be sent")
 	}
 	generated := &model.Post{Id: "twin-1", UserId: "person", ChannelId: "dm", Message: twinmateLabel + "AI reply"}
-	if shouldProcessPost(generated, human) {
+	if p.shouldProcessPost(generated, human) {
 		t.Fatal("Twinmate replies must not recursively trigger agents")
 	}
 	forgedProps := &model.Post{Id: "human-2", UserId: "person", ChannelId: "dm", Message: "Human text", Props: model.StringInterface{"twinmate": map[string]any{"generated": true}}}
-	if !shouldProcessPost(forgedProps, human) {
+	if !p.shouldProcessPost(forgedProps, human) {
 		t.Fatal("client-supplied props are not trusted provenance")
 	}
 	webhook := &model.Post{Id: "webhook-1", UserId: "person", ChannelId: "dm", Message: "Webhook notification", Props: model.StringInterface{"from_webhook": "true"}}
-	if shouldProcessPost(webhook, human) {
+	if p.shouldProcessPost(webhook, human) {
 		t.Fatal("integration-originated webhook posts must not trigger personal agents")
 	}
+}
+
+type perPostProvenanceAPI struct {plugin.API; records map[string][]byte}
+func (f *perPostProvenanceAPI) KVGet(key string)([]byte,*model.AppError) {return f.records[key],nil}
+
+func TestHumanTextMimickingLabelIsNotTrustedAsProvenance(t *testing.T) {
+    p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:&openChannelProvenanceAPI{readable:true}}}
+    plain:=&model.Post{Id:"human-forged",UserId:"human",ChannelId:"dm",Message:twinmateLabel+"Actual human request"}
+    if !p.shouldProcessPost(plain,&model.User{Id:"human"}) {
+        t.Fatal("untrusted post body suppressed a legitimate human message")
+    }
+}
+
+func TestHumanEditsRemainAllowed(t *testing.T) {
+    api:=&perPostProvenanceAPI{records:map[string][]byte{}}
+    p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:api}}
+    original:=&model.Post{Id:"human-post",UserId:"owner",ChannelId:"dm",Message:"Old human text"}
+    edited:=&model.Post{Id:original.Id,UserId:original.UserId,ChannelId:original.ChannelId,Message:"New human text"}
+    approved,reason:=p.MessageWillBeUpdated(nil,edited,original)
+    if reason!="" || approved!=edited {t.Fatalf("ordinary human edit rejected: reason=%q approved=%v",reason,approved)}
+}
+
+func TestAttributionPreservingEditsRemainAllowed(t *testing.T) {
+    record,_:=json.Marshal(storedPostProvenance{OwnerID:"owner",ChannelID:"dm"})
+    api:=&perPostProvenanceAPI{records:map[string][]byte{postProvenanceKey("ai-post"):record}}
+    p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:api}}
+    original:=&model.Post{Id:"ai-post",UserId:"owner",ChannelId:"dm",Message:twinmateLabel+"Old answer"}
+    edited:=&model.Post{Id:original.Id,UserId:original.UserId,ChannelId:original.ChannelId,Message:twinmateLabel+"Corrected answer"}
+    approved,reason:=p.MessageWillBeUpdated(nil,edited,original)
+    if reason!="" || approved!=edited {t.Fatalf("attributed edit rejected: reason=%q approved=%v",reason,approved)}
+}
+
+func TestGeneratedPostMarkerCannotBeEditedAway(t *testing.T) {
+    api:=&openChannelProvenanceAPI{readable:true}
+    p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:api}}
+    oldPost:=&model.Post{Id:"created-once",UserId:"misha",ChannelId:"open-channel",Message:twinmateLabel+"done"}
+    edited:=&model.Post{Id:oldPost.Id,UserId:oldPost.UserId,ChannelId:oldPost.ChannelId,Message:"done"}
+    _,reason:=p.MessageWillBeUpdated(nil,edited,oldPost)
+    if reason=="" {t.Fatal("author could edit away server-recorded AI attribution")}
+}
+
+type dmAuthorizationAPI struct {plugin.API; ownerDeleted,writeAllowed bool; posted bool}
+func (f *dmAuthorizationAPI) GetChannel(string)(*model.Channel,*model.AppError) {return &model.Channel{Id:"dm",Type:model.ChannelTypeDirect},nil}
+func (f *dmAuthorizationAPI) GetChannelMembers(string,int,int)(model.ChannelMembers,*model.AppError) {
+    return model.ChannelMembers{{UserId:"sender"},{UserId:"owner"}},nil
+}
+func (f *dmAuthorizationAPI) GetUser(id string)(*model.User,*model.AppError) {
+    u:=&model.User{Id:id}
+    if id=="owner" && f.ownerDeleted {u.DeleteAt=3}
+    return u,nil
+}
+func (f *dmAuthorizationAPI) HasPermissionToChannel(_, _ string, perm *model.Permission) bool {
+    return perm==model.PermissionReadChannel || (perm==model.PermissionCreatePost && f.writeAllowed)
+}
+func (f *dmAuthorizationAPI) GetChannelMember(_, user string)(*model.ChannelMember,*model.AppError) {return &model.ChannelMember{UserId:user},nil}
+func (f *dmAuthorizationAPI) CreatePost(post *model.Post)(*model.Post,*model.AppError) {f.posted=true;return post,nil}
+
+func TestAutomaticRepliesRecheckOwnerActivityAndWritePermissions(t *testing.T) {
+    api:=&dmAuthorizationAPI{ownerDeleted:true,writeAllowed:true}
+    p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:api}}
+    if owner,_:=p.Recipient(nil,"dm","sender");owner!="" {t.Fatalf("deactivated owner received external DM event: %s",owner)}
+    if err:=p.Publish(nil,"owner","dm","","response","trigger");err==nil || api.posted {t.Fatalf("published as deactivated owner: %v",err)}
+    api.ownerDeleted=false;api.writeAllowed=false
+    if err:=p.Publish(nil,"owner","dm","","response","trigger");err==nil || api.posted {t.Fatalf("published without current permission: %v",err)}
 }
 
 func TestPostProvenanceRequiresMatchingServerRecord(t *testing.T) {

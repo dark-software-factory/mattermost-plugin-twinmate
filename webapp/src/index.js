@@ -33,6 +33,8 @@ function TwinmateSettingsRoot({locale}) {
     const [hasAgentToken, setHasAgentToken] = React.useState(false);
     const [issuedAgentToken, setIssuedAgentToken] = React.useState('');
     const [agentTokenStatus, setAgentTokenStatus] = React.useState('');
+    const [agentAllowSend, setAgentAllowSend] = React.useState(false);
+    const [agentChannelIDs, setAgentChannelIDs] = React.useState('');
 
     React.useEffect(() => {
         const openSettings = () => { setOpen(true); setStatus(''); setIssuedAgentToken(''); setAgentTokenStatus(''); };
@@ -55,7 +57,7 @@ function TwinmateSettingsRoot({locale}) {
     React.useEffect(() => {
         if (!open) { return; }
         let alive = true;
-        readTokenStatus().then((data) => { if (alive) { setHasAgentToken(Boolean(data.has_token)); } })
+        readTokenStatus().then((data) => { if (alive) { setHasAgentToken(Boolean(data.has_token)); setAgentAllowSend(Boolean(data.allow_send)); setAgentChannelIDs((data.channel_ids || []).join(', ')); } })
             .catch(() => { if (alive) { setAgentTokenStatus(tr('token_status_failed')); } });
         return () => { alive = false; };
     }, [open]);
@@ -64,7 +66,7 @@ function TwinmateSettingsRoot({locale}) {
         if (hasAgentToken && !window.confirm(tr('token_rotate_confirm'))) { return; }
         setAgentTokenStatus(tr('token_rotating'));
         try {
-            const generated = await rotateAgentToken();
+            const generated = await rotateAgentToken(fetch, {allow_send: agentAllowSend, channel_ids: agentChannelIDs.split(',').map((id) => id.trim()).filter(Boolean)});
             setIssuedAgentToken(generated);
             setHasAgentToken(true);
             setAgentTokenStatus(tr('token_created'));
@@ -103,6 +105,10 @@ function TwinmateSettingsRoot({locale}) {
                 React.createElement('button', {type: 'button', onClick: () => { setIssuedAgentToken(''); setOpen(false); }, 'aria-label': tr('close')}, '×')),
             React.createElement('h3', null, tr('access_title')),
             React.createElement('p', {style: styles.secondary}, tr('access_intro')),
+            React.createElement('label', {style: styles.label},
+                React.createElement('input', {type: 'checkbox', checked: agentAllowSend, onChange: (e) => setAgentAllowSend(e.target.checked)}), ` ${tr('agent_send_scope')}`),
+            React.createElement('label', {style: styles.label}, tr('agent_channel_scope')),
+            React.createElement('input', {style: styles.field, type: 'text', placeholder: tr('agent_channel_scope_hint'), value: agentChannelIDs, onChange: (e) => setAgentChannelIDs(e.target.value)}),
             React.createElement('div', {style: {display: 'flex', gap: 8, flexWrap: 'wrap'}},
                 React.createElement('button', {type: 'button', style: styles.button, onClick: issueAgentToken}, tr(hasAgentToken ? 'rotate_key' : 'generate_key')),
                 hasAgentToken && React.createElement('button', {type: 'button', style: {...styles.button, background: '#a33434'}, onClick: removeAgentToken}, tr('revoke_key'))),

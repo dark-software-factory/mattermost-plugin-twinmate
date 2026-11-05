@@ -31,7 +31,7 @@ func TestClientSendsEventAndReturnsReply(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Client{HTTP: server.Client(), AllowPrivate: true}
+	client := Client{HTTP: server.Client(), AllowPrivate: true, ApprovedHosts: []string{strings.TrimPrefix(server.URL,"https://")}}
 	reply, err := client.Call(context.Background(), server.URL, "agent-secret", sampleEvent())
 	if err != nil || reply != "Next sprint." {
 		t.Fatalf("reply=%q, err=%v", reply, err)
@@ -43,7 +43,7 @@ func TestClientAcceptsAgentDecline(t *testing.T) {
 		_, _ = w.Write([]byte(`{"reply":"  "}`))
 	}))
 	defer server.Close()
-	reply, err := (&Client{HTTP: server.Client(), AllowPrivate: true}).Call(context.Background(), server.URL, "", sampleEvent())
+	reply, err := (&Client{HTTP: server.Client(), AllowPrivate: true, ApprovedHosts: []string{strings.TrimPrefix(server.URL,"https://")}}).Call(context.Background(), server.URL, "", sampleEvent())
 	if err != nil || reply != "" {
 		t.Fatalf("reply=%q, err=%v", reply, err)
 	}
@@ -72,12 +72,27 @@ func TestClientRejectsUnsafeEndpoints(t *testing.T) {
 	}
 }
 
+func TestPrivateCallbackFlagAloneDoesNotGrantPrivateNetworkAccess(t *testing.T) {
+    for _, endpoint := range []string{"https://localhost/events", "https://127.0.0.1/events", "https://10.0.0.7:8443/events", "https://agent.local/events"} {
+        if err := ValidateEndpoint(endpoint, true); err == nil {
+            t.Errorf("blanket administrator flag enabled private destination %q", endpoint)
+        }
+    }
+}
+
+func TestPrivateCallbackRequiresExactApprovedHostAndPort(t *testing.T) {
+	if err:=ValidateEndpoint("https://127.0.0.1:8443/agent",true,"127.0.0.1:8443");err!=nil {t.Fatal(err)}
+	for _,endpoint:=range []string{"https://127.0.0.1:443/agent","https://127.0.0.2:8443/agent","https://evil.local:8443/agent"} {
+		if err:=ValidateEndpoint(endpoint,true,"127.0.0.1:8443");err==nil {t.Errorf("incorrectly approved %s",endpoint)}
+	}
+}
+
 func TestClientNeverFollowsRedirect(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "https://example.com/steal", http.StatusTemporaryRedirect)
 	}))
 	defer server.Close()
-	_, err := (&Client{HTTP: server.Client(), AllowPrivate: true}).Call(context.Background(), server.URL, "secret", sampleEvent())
+	_, err := (&Client{HTTP: server.Client(), AllowPrivate: true, ApprovedHosts: []string{strings.TrimPrefix(server.URL,"https://")}}).Call(context.Background(), server.URL, "secret", sampleEvent())
 	if err == nil || !strings.Contains(err.Error(), "redirect") {
 		t.Fatalf("expected redirect rejection, got %v", err)
 	}
@@ -88,7 +103,7 @@ func TestClientLimitsResponseBody(t *testing.T) {
 		_, _ = w.Write([]byte(`{"reply":"` + strings.Repeat("x", 70*1024) + `"}`))
 	}))
 	defer server.Close()
-	_, err := (&Client{HTTP: server.Client(), AllowPrivate: true}).Call(context.Background(), server.URL, "", sampleEvent())
+	_, err := (&Client{HTTP: server.Client(), AllowPrivate: true, ApprovedHosts: []string{strings.TrimPrefix(server.URL,"https://")}}).Call(context.Background(), server.URL, "", sampleEvent())
 	if err == nil || !strings.Contains(err.Error(), "large") {
 		t.Fatalf("expected response size rejection, got %v", err)
 	}
@@ -102,7 +117,7 @@ func TestClientRespectsCancellation(t *testing.T) {
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
-	_, err := (&Client{HTTP: server.Client(), AllowPrivate: true}).Call(ctx, server.URL, "", sampleEvent())
+	_, err := (&Client{HTTP: server.Client(), AllowPrivate: true, ApprovedHosts: []string{strings.TrimPrefix(server.URL,"https://")}}).Call(ctx, server.URL, "", sampleEvent())
 	if err == nil {
 		t.Fatal("expected request cancellation")
 	}

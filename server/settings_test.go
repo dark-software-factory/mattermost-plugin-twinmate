@@ -88,3 +88,19 @@ func TestSettingsRejectUnsafeEndpoint(t *testing.T) {
 		t.Fatalf("unsafe endpoint accepted: %d", response.Code)
 	}
 }
+
+func TestSettingsRequireExactAdminHostPermissionForPrivateCallbacks(t *testing.T) {
+    store:=&memorySettings{values:make(map[string]core.Connection)}
+    makeRequest:=func() *http.Request {
+        r:=httptest.NewRequest(http.MethodPut,"/api/config",bytes.NewBufferString(`{"endpoint":"https://127.0.0.1:8443/agent","enabled":true}`))
+        r.Header.Set("Mattermost-User-Id","misha")
+        r.Header.Set("Content-Type","application/json")
+        return r
+    }
+    denied:=httptest.NewRecorder()
+    (&SettingsHandler{Store:store,AllowPrivate:true}).ServeHTTP(denied,makeRequest())
+    if denied.Code!=http.StatusBadRequest {t.Fatalf("global private toggle bypassed host policy: %d",denied.Code)}
+    permitted:=httptest.NewRecorder()
+    (&SettingsHandler{Store:store,AllowPrivate:true,ApprovedHosts:[]string{"127.0.0.1:8443"}}).ServeHTTP(permitted,makeRequest())
+    if permitted.Code!=http.StatusOK {t.Fatalf("explicit admin approval ignored: %d %s",permitted.Code,permitted.Body.String())}
+}

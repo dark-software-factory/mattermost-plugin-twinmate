@@ -10,16 +10,16 @@ generated reply in the original conversation.
 
 ### Requirement: Connection and conversation opt-in
 
-An external AI connection and automatic forwarding MUST start disabled.
-Each owner MUST enable an HTTPS agent connection and explicitly opt in to
-each individual one-to-one DM using `/twinmate on`. The commands
-`/twinmate off` and `/twinmate status` MUST manage or report the opt-in state
-for that conversation. The opt-in state MUST NOT govern agent-initiated
-read/write API calls.
+Automatic DM forwarding MUST start disabled. Owners MUST configure an HTTPS
+agent and opt into each one-to-one DM using `/twinmate on`. Twinmate MUST
+publish a visible disclosure and bind opt-in to its post ID. If the post is
+edited, deleted, unverifiable or mismatched, forwarding MUST stop until a
+new opt-in. `/twinmate off` and `/twinmate status` MUST manage or report
+forwarding. Opt-in MUST NOT restrict agent-initiated API calls.
 
 #### Scenario: DM is disabled by default
 
-- GIVEN a user configures an agent endpoint but has not opted into a DM
+- GIVEN an agent endpoint is configured but the DM is not opted in
 - WHEN another human sends a new message to that DM
 - THEN no message event is forwarded to the configured agent
 
@@ -28,6 +28,19 @@ read/write API calls.
 - GIVEN the user's agent and a particular DM are enabled
 - WHEN the user runs `/twinmate off` in that DM
 - THEN later messages in that DM are not forwarded to the agent
+
+#### Scenario: First opt-in notifies the other participant
+
+- GIVEN forwarding is off for the conversation
+- WHEN the owner uses `/twinmate on`
+- THEN a persistent notice appears in the DM before forwarding becomes active
+
+#### Scenario: Notice is edited or deleted
+
+- GIVEN a DM has an active opt-in bound to its disclosure post
+- WHEN the disclosure is edited or deleted before the next incoming message
+- THEN no further message is forwarded to the external agent
+- AND the owner must re-enable forwarding to publish a new notice
 
 ### Requirement: Only new human one-to-one messages trigger forwarding
 
@@ -54,9 +67,10 @@ this automatic pathway.
 Twinmate MUST send a scoped JSON message event to the configured HTTPS
 endpoint, with a stable event ID and the owner's optional bearer token.
 It MUST reject redirects and unsafe destinations; connections to private,
-loopback, or link-local networks MUST be blocked unless an administrator
-explicitly allows private agent endpoints. It MUST enforce bounded timeouts
-and response sizes.
+loopback, link-local or special-use networks MUST be blocked unless an
+administrator enables private endpoints **and** allowlists the exact host
+and port. It MUST recheck resolved IP addresses when dialing and enforce
+bounded timeouts and response sizes.
 
 #### Scenario: Agent receives a scoped event
 
@@ -68,15 +82,16 @@ and response sizes.
 
 #### Scenario: Private destination without administrative allowance
 
-- GIVEN private-network callback endpoints are not enabled by the administrator
+- GIVEN private-network callback endpoints are not enabled or the host is not allowlisted
 - WHEN the owner configures an agent using a loopback or private-network address
 - THEN the plugin refuses to contact that destination
 
 ### Requirement: Optional reply in the same DM
 
 The callback MAY return an empty reply to stay silent. For a non-empty reply,
-Twinmate MUST recheck the connection and DM opt-in before publishing a
-bounded, AI-attributed message in the same one-to-one conversation. Delivery
+Twinmate MUST recheck the connection, DM opt-in, active owner status,
+conversation membership and write permissions immediately before publishing
+a bounded, AI-attributed message in the same one-to-one conversation. Delivery
 is best-effort; Twinmate does not guarantee a durable retry queue.
 
 #### Scenario: Agent returns a reply
@@ -91,3 +106,9 @@ is best-effort; Twinmate does not guarantee a durable retry queue.
 - GIVEN a callback is already running
 - WHEN the owner disables the DM before its reply is published
 - THEN Twinmate does not publish that pending reply
+
+#### Scenario: Owner is deactivated during callback
+
+- GIVEN the reply is pending and the owner is deactivated
+- WHEN the callback returns
+- THEN Twinmate does not publish under the deactivated account
