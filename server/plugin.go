@@ -21,6 +21,12 @@ import (
 
 const twinmateLabel = "🤖 **Twinmate · AI-generated**\n\n"
 
+const twinmateDMNotice = "🔔 **Twinmate notice:** This DM now allows a participant's personal AI agent to receive new messages outside Mattermost and send visibly labeled AI-generated replies. Ask the participant to use `/twinmate off` to stop forwarding."
+
+type dmOptInRecord struct {
+	NoticePostID string `json:"notice_post_id"`
+}
+
 type storedPostProvenance struct {
 	OwnerID string `json:"owner_id"`
 	ChannelID string `json:"channel_id"`
@@ -64,6 +70,12 @@ func (p *Plugin) shouldProcessPost(post *model.Post, author *model.User) bool {
 // The record is server-owned; neither the client prop nor text by itself is proof.
 func (p *Plugin) MessageWillBeUpdated(_ *plugin.Context, newPost, oldPost *model.Post) (*model.Post,string) {
 	if oldPost==nil || newPost==nil || oldPost.Id=="" {return nil,""}
+	// The visible body label is also the fallback when provenance KVSet
+	// failed after the post was published. This veto does not certify
+	// provenance for badges or automatic forwarding.
+	if strings.HasPrefix(oldPost.Message,twinmateLabel) && !strings.HasPrefix(newPost.Message,twinmateLabel) {
+		return nil,"Twinmate AI attribution cannot be removed"
+	}
 	data,err:=p.API.KVGet(postProvenanceKey(oldPost.Id))
 	if err!=nil {return nil,"Twinmate cannot verify AI attribution right now"}
 	if len(data)==0 {return nil,""}
@@ -222,13 +234,23 @@ func (p *Plugin) DMEnabled(_ context.Context, userID, channelID string) (bool, e
 	if appErr != nil {
 		return false, appErr
 	}
-	return string(data) == "on", nil
+	var record dmOptInRecord
+	// Old plain "on" states have no verifiable disclosure. Fail closed
+	// and let the owner opt in again to publish a new notice.
+	if json.Unmarshal(data,&record)!=nil || record.NoticePostID=="" {return false,nil}
+	notice,appErr:=p.API.GetPost(record.NoticePostID)
+	if appErr!=nil || notice==nil || notice.DeleteAt!=0 || notice.UserId!=userID || notice.ChannelId!=channelID || notice.Type!="" || notice.Message!=twinmateDMNotice {
+		return false,nil
+	}
+	return true,nil
 }
 
-func (p *Plugin) setDM(userID, channelID string, enabled bool) error {
+func (p *Plugin) setDM(userID, channelID, noticePostID string) error {
 	state := []byte("off")
-	if enabled {
-		state = []byte("on")
+	if noticePostID!="" {
+		var err error
+		state,err=json.Marshal(dmOptInRecord{NoticePostID:noticePostID})
+		if err!=nil {return err}
 	}
 	if appErr := p.API.KVSet(dmKey(userID, channelID), state); appErr != nil {
 		return appErr

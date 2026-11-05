@@ -55,20 +55,18 @@ func (p *Plugin) ExecuteCommand(_ *plugin.Context, args *model.CommandArgs) (*mo
 	if command=="on" {
 		enabled,err:=p.DMEnabled(nil,args.UserId,args.ChannelId)
 		if err!=nil {return respond("Unable to read Twinmate settings.")}
-		if !enabled {
-			_,noticeErr:=p.API.CreatePost(&model.Post{
+		if enabled {return respond("Your Twinmate is already enabled in this DM. Use `/twinmate off` to pause it.")}
+		created,noticeErr:=p.API.CreatePost(&model.Post{
 				UserId:args.UserId,ChannelId:args.ChannelId,
-				Message:"🔔 **Twinmate notice:** This DM now allows a participant's personal AI agent to receive new messages outside Mattermost and send visibly labeled AI-generated replies. Ask the participant to use `/twinmate off` to stop forwarding.",
+				Message:twinmateDMNotice,
 				Props:model.StringInterface{"from_webhook":"true"},
-			})
-			if noticeErr!=nil {return respond("Could not notify the other participant; Twinmate was not enabled.")}
-		}
-	}
-	if err := p.setDM(args.UserId, args.ChannelId, command == "on"); err != nil {
-		return respond(fmt.Sprintf("Failed to update Twinmate: %v", err))
-	}
-	if command == "on" {
+		})
+		if noticeErr!=nil || created==nil || created.Id=="" {return respond("Could not notify the other participant; Twinmate was not enabled.")}
+		if err:=p.setDM(args.UserId,args.ChannelId,created.Id);err!=nil {return respond(fmt.Sprintf("Failed to update Twinmate: %v",err))}
 		return respond("Your Twinmate can now receive new messages from this DM and answer as your explicitly labeled AI twin. Use `/twinmate off` to stop it.")
+	}
+	if err := p.setDM(args.UserId, args.ChannelId, ""); err != nil {
+		return respond(fmt.Sprintf("Failed to update Twinmate: %v", err))
 	}
 	return respond("Your Twinmate is now off in this DM.")
 }
