@@ -69,7 +69,7 @@ func (p *Plugin) shouldProcessPost(post *model.Post, author *model.User) bool {
 // MessageWillBeUpdated protects the native-mobile body label against edits.
 // The record is server-owned; neither the client prop nor text by itself is proof.
 func (p *Plugin) MessageWillBeUpdated(_ *plugin.Context, newPost, oldPost *model.Post) (*model.Post,string) {
-	if oldPost==nil || newPost==nil || oldPost.Id=="" {return nil,""}
+	if oldPost==nil || newPost==nil || oldPost.Id=="" {return newPost,""}
 	// The visible body label is also the fallback when provenance KVSet
 	// failed after the post was published. This veto does not certify
 	// provenance for badges or automatic forwarding.
@@ -78,11 +78,11 @@ func (p *Plugin) MessageWillBeUpdated(_ *plugin.Context, newPost, oldPost *model
 	}
 	data,err:=p.API.KVGet(postProvenanceKey(oldPost.Id))
 	if err!=nil {return nil,"Twinmate cannot verify AI attribution right now"}
-	if len(data)==0 {return nil,""}
+	if len(data)==0 {return newPost,""}
 	var origin storedPostProvenance
-	if json.Unmarshal(data,&origin)!=nil || origin.OwnerID!=oldPost.UserId || origin.ChannelID!=oldPost.ChannelId {return nil,""}
+	if json.Unmarshal(data,&origin)!=nil || origin.OwnerID!=oldPost.UserId || origin.ChannelID!=oldPost.ChannelId {return newPost,""}
 	if !strings.HasPrefix(newPost.Message,twinmateLabel) {return nil,"Twinmate AI attribution cannot be removed"}
-	return nil,""
+	return newPost,""
 }
 
 func (p *Plugin) OnConfigurationChange() error {
