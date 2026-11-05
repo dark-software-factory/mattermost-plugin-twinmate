@@ -10,16 +10,16 @@ generated reply in the original conversation.
 
 ### Requirement: Connection and conversation opt-in
 
-Automatic DM forwarding and external connections MUST start disabled.
-Owners MUST configure an HTTPS agent and opt into each one-to-one DM using
-`/twinmate on`. Before enabling, Twinmate MUST publish a durable external-AI
-disclosure visible to both participants; a failed notice MUST leave
-forwarding disabled. `/twinmate off` and `/twinmate status` MUST manage
-or report forwarding. DM opt-in MUST NOT restrict agent-initiated API calls.
+Automatic DM forwarding MUST start disabled. Owners MUST configure an HTTPS
+agent and opt into each one-to-one DM using `/twinmate on`. Twinmate MUST
+publish a visible disclosure and bind opt-in to its post ID. If the post is
+edited, deleted, unverifiable or mismatched, forwarding MUST stop until a
+new opt-in. `/twinmate off` and `/twinmate status` MUST manage or report
+forwarding. Opt-in MUST NOT restrict agent-initiated API calls.
 
 #### Scenario: DM is disabled by default
 
-- GIVEN a user configures an agent endpoint but has not opted into a DM
+- GIVEN an agent endpoint is configured but the DM is not opted in
 - WHEN another human sends a new message to that DM
 - THEN no message event is forwarded to the configured agent
 
@@ -34,6 +34,13 @@ or report forwarding. DM opt-in MUST NOT restrict agent-initiated API calls.
 - GIVEN forwarding is off for the conversation
 - WHEN the owner uses `/twinmate on`
 - THEN a persistent notice appears in the DM before forwarding becomes active
+
+#### Scenario: Notice is edited or deleted
+
+- GIVEN a DM has an active opt-in bound to its disclosure post
+- WHEN the disclosure is edited or deleted before the next incoming message
+- THEN no further message is forwarded to the external agent
+- AND the owner must re-enable forwarding to publish a new notice
 
 ### Requirement: Only new human one-to-one messages trigger forwarding
 
