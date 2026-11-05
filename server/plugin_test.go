@@ -110,6 +110,25 @@ func TestHumanTextMimickingLabelIsNotTrustedAsProvenance(t *testing.T) {
     }
 }
 
+func TestHumanEditsRemainAllowed(t *testing.T) {
+    api:=&perPostProvenanceAPI{records:map[string][]byte{}}
+    p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:api}}
+    original:=&model.Post{Id:"human-post",UserId:"owner",ChannelId:"dm",Message:"Old human text"}
+    edited:=&model.Post{Id:original.Id,UserId:original.UserId,ChannelId:original.ChannelId,Message:"New human text"}
+    approved,reason:=p.MessageWillBeUpdated(nil,edited,original)
+    if reason!="" || approved!=edited {t.Fatalf("ordinary human edit rejected: reason=%q approved=%v",reason,approved)}
+}
+
+func TestAttributionPreservingEditsRemainAllowed(t *testing.T) {
+    record,_:=json.Marshal(storedPostProvenance{OwnerID:"owner",ChannelID:"dm"})
+    api:=&perPostProvenanceAPI{records:map[string][]byte{postProvenanceKey("ai-post"):record}}
+    p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:api}}
+    original:=&model.Post{Id:"ai-post",UserId:"owner",ChannelId:"dm",Message:twinmateLabel+"Old answer"}
+    edited:=&model.Post{Id:original.Id,UserId:original.UserId,ChannelId:original.ChannelId,Message:twinmateLabel+"Corrected answer"}
+    approved,reason:=p.MessageWillBeUpdated(nil,edited,original)
+    if reason!="" || approved!=edited {t.Fatalf("attributed edit rejected: reason=%q approved=%v",reason,approved)}
+}
+
 func TestGeneratedPostMarkerCannotBeEditedAway(t *testing.T) {
     api:=&openChannelProvenanceAPI{readable:true}
     p:=&Plugin{MattermostPlugin:plugin.MattermostPlugin{API:api}}

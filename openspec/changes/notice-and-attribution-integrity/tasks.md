@@ -3,6 +3,7 @@
 - [ ] Write failing Go tests for edited/deleted disclosure and failed-provenance edit.
 - [ ] Persist and recheck DM notice ID/text/user/channel before forwarding.
 - [ ] Harden attribution edit hook without treating text as verified provenance.
+- [ ] Preserve Mattermost's normal edit-hook contract for allowed post edits.
 - [ ] Extend Mattermost E2E with edited/deleted notice regressions.
 
 ## Verification

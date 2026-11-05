@@ -14,11 +14,15 @@
    classify the post as trusted AI for badges or forwarding. A human who
    deliberately uses the exact reserved prefix also cannot edit that prefix
    away; they can still delete their own message.
+4. Mattermost's `MessageWillBeUpdated` requires returning the updated post
+   pointer on an allowed edit (`nil` rejects it). Keep all ordinary edits and
+   label-preserving AI corrections working while rejecting label removal.
 
 ## Verification
 
 - Unit tests simulate editing/deleting the notice after opt-in, missing IDs,
-  and a failed provenance KV write followed by attempted marker removal.
+  a failed provenance KV write followed by attempted marker removal, and
+  allowed human/AI message corrections.
 - Playwright E2E verifies edits/deletions of the real Mattermost notice stop
   subsequent automatic callback events on both supported server versions.
 - Run Go/vet, webapp, OpenSpec and Mattermost 11.0/11.11 CI before archive.

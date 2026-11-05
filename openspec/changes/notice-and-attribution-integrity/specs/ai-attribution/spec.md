@@ -26,3 +26,9 @@ provenance-storage failure; unverified labels MUST NOT confer a trusted badge.
 - GIVEN a post with the persisted Twinmate body marker
 - WHEN its author tries to remove that marker
 - THEN Mattermost rejects the edit, including when provenance KV is unavailable
+
+#### Scenario: A permitted edit keeps its attribution
+
+- GIVEN an ordinary human post or an AI post whose edit preserves the body label
+- WHEN its author changes the post text
+- THEN Twinmate permits the edit instead of rejecting it in the update hook

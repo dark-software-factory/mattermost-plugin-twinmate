@@ -34,10 +34,11 @@ func (f *disclosureAPI) CreatePost(post *model.Post)(*model.Post,*model.AppError
     if f.failNotice {return nil,&model.AppError{Message:"failed"}}
     if post.UserId!="owner" || post.ChannelId!="dm" || post.Message=="" {panic("invalid disclosure")}
     f.notices++
-    copied:=*post
-    copied.Id=model.NewId()
-    f.notice=&copied
-    return &copied,nil
+    f.notice=&model.Post{
+        Id:model.NewId(), UserId:post.UserId, ChannelId:post.ChannelId,
+        Message:post.Message, Props:post.Props,
+    }
+    return f.notice,nil
 }
 
 func TestOptInDisclosesExternalAgentBeforeForwarding(t *testing.T) {
