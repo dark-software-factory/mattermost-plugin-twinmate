@@ -5,12 +5,14 @@ context: |
   React webapp and a standalone Go stdio MCP client for developer-owned agents.
   A local agent initiates outbound HTTPS calls to Mattermost; only optional
   automatic DM responses need an HTTPS endpoint reachable from Mattermost.
-  The personal Twinmate API token grants message reads and send-as-owner writes;
-  always enforce Mattermost permissions and preserve server-owned provenance.
+  New personal Twinmate API keys default to read-only. Sending as the owner
+  requires an explicit immutable key capability; keys can also be scoped to
+  channel IDs. Always enforce Mattermost permissions and server-owned provenance.
   AI-authored posts need a persistent label visible on native mobile clients;
   a verified localized web post-header badge is supported from Mattermost 11.9.
   Default to closed access: no automatic DM forwarding without explicit
-  per-conversation opt-in, and no private-network callbacks without admin opt-in.
+  per-conversation opt-in and a visible DM disclosure; private-network
+  callbacks require admin opt-in and exact host:port allowlisting.
   Target Go standard-library style, avoid unnecessary runtime dependencies,
   and preserve existing API compatibility unless the change says otherwise.
   Test with go test ./..., npm test --prefix webapp, and the real Mattermost
