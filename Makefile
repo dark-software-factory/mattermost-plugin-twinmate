@@ -1,45 +1,27 @@
-PLUGIN_ID := com.darksoftwarefactory.twinmate
-VERSION := 0.1.0
 OPENSPEC_VERSION := 1.16.0
 OPENSPEC := npm exec --yes --package=@fission-ai/openspec@$(OPENSPEC_VERSION) -- openspec
 
-.PHONY: test test-e2e spec-check build-server build-web bundle clean build-mcp
+.PHONY: check spec-check
 
-test:
-	go test ./...
-	cd webapp && npm test
+# Design-stage gate: intentionally does not compile or package an application.
+check:
+	@test -f README.md
+	@test -f AGENTS.md
+	@test -f docs/product/brief.md
+	@test -f docs/architecture/README.md
+	@test -f docs/research/README.md
+	@test -f docs/decisions/README.md
+	@test -f openspec/config.yaml
+	@test -d openspec/specs
+	@test ! -e go.mod
+	@test ! -e plugin.json
+	@test ! -d server
+	@test ! -d internal
+	@test ! -d webapp
+	@test ! -d cmd
+	@test ! -d e2e
+	@echo "Design-only repository checks passed"
 
 spec-check:
 	OPENSPEC_TELEMETRY=0 OPENSPEC_NO_UPDATE_CHECK=1 $(OPENSPEC) validate --all --strict --no-interactive
 	OPENSPEC_TELEMETRY=0 OPENSPEC_NO_UPDATE_CHECK=1 $(OPENSPEC) validate --archived --no-interactive
-
-test-e2e:
-	npm ci --prefix webapp
-	$(MAKE) bundle build-mcp
-	npm ci --prefix e2e
-	cd e2e && npx playwright install chromium
-	npm test --prefix e2e
-
-build-server:
-	mkdir -p server/dist
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o server/dist/plugin-linux-amd64 ./server
-
-build-web:
-	cd webapp && npm run build
-
-build-mcp:
-	mkdir -p dist
-	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o dist/twinmate-mcp-darwin-arm64 ./cmd/twinmate-mcp
-	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o dist/twinmate-mcp-darwin-amd64 ./cmd/twinmate-mcp
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/twinmate-mcp-linux-amd64 ./cmd/twinmate-mcp
-
-bundle: build-server build-web
-	mkdir -p dist/plugin/server/dist dist/plugin/webapp/dist
-	cp plugin.json dist/plugin/plugin.json
-	cp server/dist/plugin-linux-amd64 dist/plugin/server/dist/plugin-linux-amd64
-	cp webapp/dist/main.js dist/plugin/webapp/dist/main.js
-	tar -C dist/plugin -czf dist/$(PLUGIN_ID)-$(VERSION).tar.gz .
-
-clean:
-	rm -f server/dist/plugin-linux-amd64
-	rm -rf dist/plugin

@@ -1,23 +1,36 @@
-# Twinmate agent instructions
+# Twinmate — agent collaboration rules
 
-Use OpenSpec for feature work, behavior changes, API contracts, and security-sensitive fixes.
+## Current phase: research and design only
 
-1. Read `openspec/config.yaml`, the affected `openspec/specs/*/spec.md`, and any active change before proposing code.
-2. Capture the request with **OpenSpec propose**: `proposal.md` (why/scope), capability delta `specs/` (what), `design.md` (how), and `tasks.md` (verification checklist). Review the artifacts before implementation.
-3. Implement via **OpenSpec apply**. Update the artifacts when discoveries change the agreed behavior. Mark tasks complete only after checking results.
-4. Run `make spec-check` and relevant Go, webapp, and E2E tests. For cross-boundary behavior run `make test-e2e` (Docker required); CI tests Mattermost 11.0 and 11.11.
-5. **Sync and archive** the completed change on the same PR before merging, so `openspec/specs/` always describes the merged behavior. CI validates current specs and completed archives.
+There is **no active product implementation**. Do not create server, webapp, MCP, dependency manifests, packaging, or deployment pipelines before the user approves an architecture and its OpenSpec design artifacts. Do not treat historical examples as a request to rebuild them.
 
-Use `$openspec-propose`, `$openspec-apply-change`, `$openspec-archive-change` in Codex; use `/opsx-propose`, `/opsx-apply`, `/opsx-archive` in Cursor. The optional explore, update and sync workflows are installed too. CLI equivalents include `openspec new change`, `openspec status`, `openspec instructions`, `openspec validate`, and `openspec archive`.
+Read `README.md`, `docs/product/brief.md`, `openspec/config.yaml`, and the relevant research/ADRs before proposing a design. Prior work in `docs/superpowers/`, `docs/history/`, and `openspec/changes/archive/` is historical evidence, not a current specification.
 
-For pure tooling/refactors that do **not** affect observable behavior, explicitly set `skip_specs: true` in the change's `.openspec.yaml`. Do not invent a fake behavioral delta. Minor typo-only corrections need no new change.
+## Fixed product constraints
 
-Project invariants:
+1. A delegated agent must be able to publish in the **existing one-to-one DM**, as its human owner, without adding a third participant.
+2. A recipient must be able to recognize an AI-delegated message on **native mobile**, not only through a webapp plugin component.
+3. No agent may read or write beyond its owner's actual Mattermost permissions. Trust, credential handling, and provenance must be reasoned about server-side.
+4. The external agent runtime is interchangeable; do not assume Mattermost Agents, OpenClaw, or a particular MCP implementation is mandatory.
 
-- Mattermost **11.0+** server plugin in Go; React webapp; Go stdio MCP client; no Node.js dependency at plugin runtime.
-- A personal Twinmate key never authorizes another person's messages. Recheck Mattermost permissions on each read/write and keep provenance server-owned.
-- AI messages must remain visibly attributed on native mobile via the persisted body marker; web badges must not trust client-supplied props.
-- Automatic one-to-one DM forwarding starts **off**, requires explicit opt-in, and never silently extends to group channels.
-- Preserve existing REST/MCP behavior unless the change's delta spec intentionally changes it.
+These describe desired outcomes, not an approved implementation. Other choices (Free vs Enterprise, callback vs pull, consent, identity marking, data retention, supported versions) must be researched before being frozen into specs.
 
-Current contracts: `openspec/specs/`. Historical implementation decisions: `docs/superpowers/`.
+## Workflow
+
+1. **Research first.** Start with vendor docs, source code, and small reproducible experiments. Record a dated source, observed behavior, version/license assumptions, and unresolved questions in `docs/research/`.
+2. **Separate evidence and decisions.** Put confirmed product needs in `docs/product/`; compare alternatives and trust boundaries in `docs/architecture/`; use `docs/decisions/` for accepted ADRs. Never present an unverified technical assumption as a settled constraint.
+3. **OpenSpec propose.** After research, produce a named change with `proposal.md` (why/scope/non-goals/rollback), `specs/` (observable behavior and GIVEN/WHEN/THEN scenarios), `design.md` (interfaces, permissions, failure modes), and `tasks.md` (verifiable steps).
+4. **Review gate.** Get explicit user approval of the design **before implementation**. Update the proposal and ADRs whenever conclusions change.
+5. **Implement only after approval.** Follow the approved OpenSpec change, add focused and end-to-end tests at relevant boundaries, then sync/validate/archive the accepted change.
+
+Use `.agents/skills/openspec-propose/` in Codex or `.cursor/commands/opsx-propose.md` in Cursor for proposal generation. Explore/update/sync/archive workflows are installed in both environments. `make check` validates the design-first repository shape; `make spec-check` runs the pinned OpenSpec CLI.
+
+## Design review checklist
+
+- Reusing official Mattermost functionality versus owning a custom plugin, including version/license constraints.
+- Existing one-to-one DM semantics and correct author identity.
+- Visible, unforgeable AI provenance and native-mobile fallback.
+- Per-user grants, identity propagation, revocation, access checks, and auditability.
+- Explicit privacy/consent decisions for automatic forwarding, sensitive messages, and external retention.
+- Connectivity for local agents behind NAT; delivery, retries, idempotency, and failures.
+- Integration tests against real supported Mattermost versions before release.

@@ -1,0 +1,21 @@
+name: Design validation
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-design-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check design-first repository structure
+        run: make check
+      - name: Validate OpenSpec artifacts
+        run: make spec-check
