@@ -1,50 +1,32 @@
 schema: spec-driven
 
 context: |
-  Twinmate is a preview Mattermost Server 11+ plugin written in Go, with a
-  React webapp and a standalone Go stdio MCP client for developer-owned agents.
-  A local agent initiates outbound HTTPS calls to Mattermost; only optional
-  automatic DM responses need an HTTPS endpoint reachable from Mattermost.
-  New personal Twinmate API keys default to read-only. Sending as the owner
-  requires an explicit immutable key capability; keys can also be scoped to
-  channel IDs. Always enforce Mattermost permissions and server-owned provenance.
-  AI-authored posts need a persistent label visible on native mobile clients;
-  a verified localized web post-header badge is supported from Mattermost 11.9.
-  Default to closed access: no automatic DM forwarding without explicit
-  per-conversation opt-in and a visible DM disclosure; private-network
-  callbacks require admin opt-in and exact host:port allowlisting.
-  Target Go standard-library style, avoid unnecessary runtime dependencies,
-  and preserve existing API compatibility unless the change says otherwise.
-  Test with go test ./..., npm test --prefix webapp, and the real Mattermost
-  11.0/11.11 Playwright + Testcontainers suite for integration-sensitive changes.
-  Treat docs/superpowers/ as historical design records, not current contracts;
-  the current behavioral source of truth is openspec/specs/.
+  Twinmate is in a research/design phase: it has no implementation or runtime
+  technology decision. The confirmed goal is to let an external, owner-delegated
+  AI agent publish clearly marked AI messages as the owner in an existing
+  two-person Mattermost DM, without adding a third member. Attribution must
+  remain visible on unmodified native mobile clients. Operations must never
+  exceed the owner's Mattermost permissions. These are product outcomes, not
+  chosen APIs, authentication schemes, or deployment architecture.
+  Research first-party Mattermost capabilities and edition/version constraints
+  before recommending custom code. Treat docs/superpowers/, docs/history/, and
+  openspec/changes/archive/ as legacy reference material only.
+  Current approved specs are intentionally empty until a new design is reviewed.
 
 rules:
   proposal:
-    - State the user problem and intended outcome, not just the implementation.
-    - Identify non-goals, compatibility impact, privacy/security risk, and rollback.
+    - Link the product problem and the research evidence behind the choice.
+    - State alternatives considered, non-goals, assumptions, and rollback.
+    - Identify which decisions are approved and which remain open.
   specs:
-    - Describe observable behavior using MUST/SHALL and GIVEN/WHEN/THEN scenarios.
-    - Cover successful and denied access for changes touching messages or tokens.
-    - Include mobile attribution, DM consent, and affected Mattermost versions when relevant.
-    - Preserve existing capability paths and full requirement text in MODIFIED deltas.
+    - Specify observable outcomes with MUST and GIVEN/WHEN/THEN scenarios.
+    - Cover both authorized and denied access for messages and identities.
+    - State native-mobile behavior, DM boundaries, and license/version assumptions.
+    - Do not copy legacy specs into active specs without a new design review.
   design:
-    - Explain the boundary between Mattermost Go plugin, webapp, and local MCP.
-    - Record permission checks, data ownership, trust boundaries, and failure paths.
-    - Name affected interfaces, test strategy, and compatibility constraints.
+    - Explain component ownership and third-party plugin dependencies.
+    - Describe authorization, identity, provenance, trust boundaries, and failure paths.
+    - Cite evidence for API or plugin-extension assumptions.
   tasks:
-    - Include focused tests, Go/webapp checks, and E2E when behavior crosses boundaries.
-    - Keep items independently verifiable with checkboxes and specific file paths.
-
-operations:
-  apply:
-    guidance:
-      - Read the current capabilities and change artifacts before editing code.
-      - Run focused tests before the full suite and keep tasks.md up to date.
-      - If behavior changes while implementing, revise the delta specs and design.
-  archive:
-    guidance:
-      - Archive only after implementation and tests are verified.
-      - Sync changed requirements to openspec/specs/ as part of the same PR.
-      - Keep historical change artifacts and never rewrite archived decisions.
+    - Map each approved behavior to focused and cross-boundary verification.
+    - Keep steps independently checkable and avoid premature implementation work.

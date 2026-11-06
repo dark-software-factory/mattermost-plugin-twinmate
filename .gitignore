@@ -1,11 +1,5 @@
-webapp/node_modules/
-e2e/node_modules/
-e2e/.runtime/
-e2e/logs/
-e2e/results/
-e2e/test-results/
-webapp/dist/
-server/dist/
+.DS_Store
+.superpowers/
+node_modules/
 dist/
 *.tar.gz
-.DS_Store
